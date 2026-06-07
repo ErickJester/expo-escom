@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Modelos y artefactos pesados (descomenta si no quieres versionarlos)
+# models/*.pt
+
+# Dataset de imágenes (muy pesado, no se versiona)
+dataset/*
+# pero conservamos la carpeta para mantener la estructura
+!dataset/.gitkeep
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# SO
+.DS_Store
+Thumbs.db

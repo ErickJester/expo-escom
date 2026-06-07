@@ -1,0 +1,14 @@
+# ExpoEscom - dependencias (versión local)
+#
+# IMPORTANTE: torch/torchvision deben instalarse con soporte CUDA.
+# Para RTX 2070 Super, instala primero el build CUDA desde:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# (o el cuXXX que corresponda a tu driver). Luego:
+#   pip install -r requirements.txt
+#
+torch>=2.0
+torchvision>=0.15
+numpy
+pillow
+scikit-learn
+matplotlib
