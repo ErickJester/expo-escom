@@ -3,8 +3,10 @@
 # Dataset: clases de caricaturas/anime + "otra"
 #
 # Uso:
-#   python train.py
+#   python train.py                    # guarda con timestamp automático
+#   python train.py --name mi_prueba   # guarda como models/mi_prueba.pt
 # ============================================================
+import argparse
 import os
 import time
 import warnings
@@ -138,7 +140,20 @@ def plot_history(history, classes, n_samples, best_f1):
     print(f"📈 Gráfica guardada: {graph_path}")
 
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--name', default='',
+                        help='Nombre base del modelo (sin .pt). '
+                             'Por defecto usa timestamp para no pisar runs anteriores.')
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+    run_name  = args.name if args.name else time.strftime('run_%Y%m%d_%H%M%S')
+    save_path = os.path.join(C.SAVE_DIR, f'{run_name}.pt')
+    # Sobreescribe save_path para todo el run
+    C.SAVE_PATH = save_path
     print("═" * 60)
     print("🚀 ExpoEscom Mini PoC — Entrenamiento LOCAL")
     print("═" * 60)
@@ -186,11 +201,14 @@ def main():
     best_f1    = 0.0
     best_state = {k: v.clone() for k, v in model.state_dict().items()}
 
+    t_total = time.time()
+
     # ── Fase 1: solo cabeza ─────────────────────────────────
     print("\n" + "═" * 60)
     print(f"🚀 FASE 1 — Backbone congelado | LR={C.LR_PHASE1} | "
           f"Épocas={C.NUM_EPOCHS_P1}")
     print("═" * 60)
+    t_p1 = time.time()
     opt1 = torch.optim.Adam(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=C.LR_PHASE1, weight_decay=1e-4)
@@ -200,13 +218,15 @@ def main():
         'P1', model, train_loader, val_loader, criterion, opt1, sch1,
         C.NUM_EPOCHS_P1, classes, history, best_f1, best_state,
         step_with_metric=True)
-    print(f"🏁 Mejor F1 Fase 1: {best_f1:.4f}")
+    t_p1 = time.time() - t_p1
+    print(f"🏁 Mejor F1 Fase 1: {best_f1:.4f}  |  Tiempo Fase 1: {t_p1/60:.1f} min")
 
     # ── Fase 2: fine-tuning ─────────────────────────────────
     print("\n" + "═" * 60)
     print(f"🔥 FASE 2 — Fine-tuning últimas 3 capas | LR={C.LR_PHASE2} | "
           f"Épocas={C.NUM_EPOCHS_P2}")
     print("═" * 60)
+    t_p2 = time.time()
     model.load_state_dict(best_state)
     model.unfreeze_last_n(n=3)
     opt2 = torch.optim.Adam(
@@ -217,6 +237,9 @@ def main():
         'P2', model, train_loader, val_loader, criterion, opt2, sch2,
         C.NUM_EPOCHS_P2, classes, history, best_f1, best_state,
         step_with_metric=False)
+    t_p2 = time.time() - t_p2
+    t_total = time.time() - t_total
+    print(f"⏱️  Tiempo Fase 2: {t_p2/60:.1f} min")
 
     # ── Resultados ──────────────────────────────────────────
     model.load_state_dict(best_state)
@@ -229,6 +252,8 @@ def main():
     print(f"Imágenes        : {len(all_samples):,}")
     print(f"Mejor F1 macro  : {best_f1:.4f}")
     print(f"Modelo guardado : {C.SAVE_PATH}")
+    print(f"⏱️  Tiempo total  : {t_total/60:.1f} min  "
+          f"(F1: {t_p1/60:.1f} min  |  F2: {t_p2/60:.1f} min)")
     if best_f1 >= 0.75:
         print("✅✅✅  EXCELENTE — Arquitectura validada.")
     elif best_f1 >= 0.55:

@@ -15,7 +15,9 @@ from model import CartoonClassifier
 
 
 def load_model(ckpt_path=C.SAVE_PATH):
-    ckpt    = torch.load(ckpt_path, map_location=C.DEVICE)
+    # weights_only=False: el checkpoint incluye metadatos (clases, history)
+    # además de los pesos. El archivo es propio, no de una fuente externa.
+    ckpt    = torch.load(ckpt_path, map_location=C.DEVICE, weights_only=False)
     classes = ckpt['classes']
     model   = CartoonClassifier(num_classes=len(classes), pretrained=False)
     model.load_state_dict(ckpt['model_state_dict'])
