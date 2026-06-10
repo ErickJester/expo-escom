@@ -1,29 +1,36 @@
 """
-Estandarización local: clase `pokemon`
+Estandarización local — GENÉRICA (cualquier clase)
 ExpoEscom — Clasificador Multietiqueta
+Versión 2.1.0
 
-Extrae imágenes de los ZIP/RAR en esta carpeta y las deja en
-../dataset/pokemon/ como pokemon_NNNNNN.jpg (224x224 RGB JPG).
+En cada ejecución el programa pregunta:
+  1. La carpeta DESTINO dentro de dataset/ (la clase: pokemon, naruto, ...)
+  2. El nombre del archivo ZIP dentro de sinEstandarizar/ a estandarizar
+     (el título completo del .zip, SIN la extensión .zip)
+
+Extrae las imágenes de ese ZIP y las deja en ../dataset/<clase>/ como
+<clase>_NNNNNN.jpg (224x224 RGB JPG). Si el ZIP contiene RARs anidados,
+también los procesa.
 
 ESTRATEGIA DE CUOTAS (de menor a mayor fuente):
-  Las fuentes chicas (official_art, fanart, ...) se estandarizan COMPLETAS.
-  El resto de la meta se reparte en partes iguales entre las fuentes
-  grandes (primera_temporada, juego, ...) para maximizar variedad.
+  Cuando el ZIP trae varias fuentes (p.ej. RARs anidados), las chicas se
+  estandarizan COMPLETAS y el resto de la meta se reparte en partes iguales
+  entre las grandes, para maximizar la variedad del dataset.
 
 FILTRO DE VARIEDAD:
   Cada imagen candidata se compara con las ya guardadas mediante un hash
   perceptual (dHash). Si es muy parecida a una existente se descarta y se
   toma otra en su lugar — así el dataset no se llena de frames casi
-  idénticos (crítico para el juego: 1.3M capturas muy repetitivas).
+  idénticos.
 
 Uso:
-    python estandarizar_local.py --max 200000   # objetivo total
-    python estandarizar_local.py --inventario   # solo muestra fuentes y cuenta
+    python estandarizar_local.py --max 200000   # objetivo total (pregunta clase + zip)
+    python estandarizar_local.py --inventario    # solo lista fuentes del zip
     python estandarizar_local.py --max 200000 --sin-filtro-existentes
         # no indexa las imágenes ya guardadas (más rápido, pero las nuevas
         # solo se comparan entre sí)
 
-Para los .rar necesitas unrar:
+Para los .rar (anidados) necesitas unrar:
     sudo apt-get install unrar
 """
 
@@ -39,10 +46,15 @@ from pathlib import Path
 
 from PIL import Image
 
+# ── Versión ──────────────────────────────────────────────────
+# 1.x   → específico de pokemon.
+# 2.0.0 → genérico (clase + zip por entrada).
+# 2.1.0 → instrucciones por pasos + detección de .rar y errores claros.
+VERSION = '2.1.0'
+
 # ── Configuración ────────────────────────────────────────────
 SCRIPT_DIR    = Path(__file__).resolve().parent
-DESTINO_CLASE = SCRIPT_DIR.parent / 'dataset' / 'pokemon'
-CLASE         = 'pokemon'
+DATASET_ROOT  = SCRIPT_DIR.parent / 'dataset'
 IMG_SIZE      = (224, 224)
 SEED          = 42
 TMP_DIR       = SCRIPT_DIR / 'tmp_extract'
@@ -50,6 +62,10 @@ EXTENSIONES   = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
 
 HASH_SIZE        = 8    # dHash 8x8 → 64 bits
 UMBRAL_SIMILITUD = 8    # distancia Hamming máxima para considerar "similar"
+
+# Se fijan en main() según lo que escriba el usuario.
+CLASE         = None
+DESTINO_CLASE = None
 
 
 def es_imagen(nombre):
@@ -276,30 +292,91 @@ class FuenteRar:
         return procesadas, descartadas
 
 
+# ── Entrada interactiva ──────────────────────────────────────
+
+def pedir_clase():
+    """Pregunta la carpeta destino dentro de dataset/ (se crea si no existe)."""
+    existentes = sorted(p.name for p in DATASET_ROOT.iterdir()
+                        if p.is_dir()) if DATASET_ROOT.is_dir() else []
+    print()
+    print('PASO 1 — Carpeta destino')
+    print('  Es la CLASE donde se guardarán las imágenes, dentro de dataset/.')
+    print('  Escribe solo el nombre (ej. "pokemon"), sin barras ni rutas.')
+    print('  Si la carpeta no existe, se crea automáticamente.')
+    if existentes:
+        print(f'  Carpetas que ya existen: {", ".join(existentes)}')
+    while True:
+        clase = input('➡️  Carpeta destino: ').strip().strip('/')
+        if not clase:
+            print('   ⚠️  No escribiste nada. Intenta de nuevo '
+                  '(ej. pokemon).')
+            continue
+        if '/' in clase or '\\' in clase:
+            print('   ⚠️  Escribe solo el nombre de la carpeta, sin rutas '
+                  'ni barras.')
+            continue
+        return clase
+
+
+def pedir_zip():
+    """Pregunta el ZIP a estandarizar (sin .zip) y valida que exista."""
+    disponibles = sorted(p.stem for p in SCRIPT_DIR.glob('*.zip'))
+    print()
+    print('PASO 2 — Archivo ZIP a estandarizar')
+    print('  Debe estar dentro de la carpeta sinEstandarizar/.')
+    print('  Escribe el nombre EXACTO del archivo, SIN la extensión .zip.')
+    print('  Ejemplo: si el archivo es  pokemon_juego.zip  →  escribe  pokemon_juego')
+    if disponibles:
+        print(f'  ZIPs disponibles ahora: {", ".join(disponibles)}')
+    else:
+        print('  ⚠️  Ahora mismo NO hay ningún .zip en sinEstandarizar/.')
+        print('     Copia primero tu archivo .zip ahí y vuelve a ejecutar.')
+    while True:
+        nombre = input('➡️  Nombre del ZIP (sin .zip): ').strip()
+        if not nombre:
+            print('   ⚠️  No escribiste nada. Intenta de nuevo.')
+            continue
+        # Tolera que peguen el nombre con extensión.
+        if nombre.lower().endswith('.zip'):
+            nombre = nombre[:-4]
+        zip_path = SCRIPT_DIR / f'{nombre}.zip'
+        if zip_path.exists():
+            return zip_path
+        # Caso frecuente: el archivo es .rar, no .zip.
+        rar_path = SCRIPT_DIR / f'{nombre}.rar'
+        if rar_path.exists():
+            print(f'   ❌ Encontré "{rar_path.name}", pero este programa solo '
+                  'acepta archivos .zip.')
+            print('      Comprime el contenido en un .zip (o mete el .rar '
+                  'dentro de un .zip) y vuelve a intentar.')
+            continue
+        print(f'   ❌ No existe "{zip_path.name}" en sinEstandarizar/.')
+        print('      Revisa que el nombre sea EXACTO (mayúsculas, guiones, '
+              'espacios) y que NO incluya .zip.')
+        if disponibles:
+            print(f'      Disponibles: {", ".join(disponibles)}')
+
+
 # ── Inventario ───────────────────────────────────────────────
 
-def descubrir_fuentes():
-    """Devuelve lista de FuenteZip / FuenteRar encontradas en SCRIPT_DIR."""
+def descubrir_fuentes(zip_path):
+    """
+    Devuelve las fuentes (FuenteZip / FuenteRar) contenidas en UN solo ZIP.
+    Si el ZIP trae imágenes directas → una FuenteZip.
+    Si trae RARs anidados → una FuenteRar por cada RAR.
+    """
     fuentes = []
-    zips = sorted(SCRIPT_DIR.glob('*.zip'))
-    rars = sorted(SCRIPT_DIR.glob('*.rar'))
+    with zipfile.ZipFile(zip_path) as zf:
+        entradas = [n for n in zf.namelist()
+                    if not n.startswith('__MACOSX')]
+    imgs = [n for n in entradas if es_imagen(n)]
+    anid = [n for n in entradas if Path(n).suffix.lower() == '.rar']
 
-    for z in zips:
-        with zipfile.ZipFile(z) as zf:
-            entradas = [n for n in zf.namelist()
-                        if not n.startswith('__MACOSX')]
-        imgs   = [n for n in entradas if es_imagen(n)]
-        anid   = [n for n in entradas if Path(n).suffix.lower() == '.rar']
-
-        if imgs:
-            fuentes.append(FuenteZip(z.stem, z, imgs))
-        for rar in anid:
-            fuentes.append(FuenteRar(Path(rar).stem, None,
-                                     zip_origen=z, rar_interno=rar))
-
-    for r in rars:
-        fuentes.append(FuenteRar(r.stem, r))
-
+    if imgs:
+        fuentes.append(FuenteZip(zip_path.stem, zip_path, imgs))
+    for rar in anid:
+        fuentes.append(FuenteRar(Path(rar).stem, None,
+                                 zip_origen=zip_path, rar_interno=rar))
     return fuentes
 
 
@@ -326,10 +403,12 @@ def asignar_cuotas(fuentes, total):
 # ── Main ─────────────────────────────────────────────────────
 
 def main():
+    global CLASE, DESTINO_CLASE
+
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--max', type=int, default=500,
-                        help='Total de imágenes objetivo en dataset/pokemon '
+                        help='Total de imágenes objetivo en dataset/<clase> '
                              '(incluye las que ya existen). Default: 500')
     parser.add_argument('--inventario', action='store_true',
                         help='Solo muestra fuentes y cuenta imágenes '
@@ -345,16 +424,38 @@ def main():
     args = parser.parse_args()
 
     random.seed(SEED)
+
+    # ── Instrucciones ────────────────────────────────────────
+    print('═' * 60)
+    print(f'  ESTANDARIZACIÓN DE IMÁGENES — ExpoEscom  (v{VERSION})')
+    print('═' * 60)
+    print('Instrucciones:')
+    print('  1. Coloca el ZIP a estandarizar dentro de la carpeta')
+    print('     sinEstandarizar/  (puede contener imágenes o RARs anidados).')
+    print('  2. Indica la carpeta DESTINO dentro de dataset/ (la clase).')
+    print('     Si no existe, se crea automáticamente.')
+    print('  3. Escribe el nombre del ZIP SIN la extensión .zip.')
+    print('  4. Las imágenes se guardan como <clase>_NNNNNN.jpg (224x224 RGB).')
+    print(f'  • Meta de imágenes (--max): {args.max:,}   '
+          f'Filtro de variedad (--umbral): {args.umbral}')
+    print('─' * 60)
+
+    # ── Preguntar destino y ZIP ──────────────────────────────
+    CLASE         = pedir_clase()
+    DESTINO_CLASE = DATASET_ROOT / CLASE
+    zip_path      = pedir_zip()
+
     DESTINO_CLASE.mkdir(parents=True, exist_ok=True)
+    print(f'\nClase / destino : {DESTINO_CLASE}')
+    print(f'ZIP origen      : {zip_path.name}')
 
     ya_tenemos = len(list(DESTINO_CLASE.glob('*.jpg')))
-    print(f'Destino    : {DESTINO_CLASE}')
-    print(f'Ya tenemos : {ya_tenemos:,}')
+    print(f'Ya tenemos      : {ya_tenemos:,}')
 
-    # ── Descubrir fuentes ────────────────────────────────────
-    fuentes = descubrir_fuentes()
+    # ── Descubrir fuentes dentro del ZIP elegido ─────────────
+    fuentes = descubrir_fuentes(zip_path)
     if not fuentes:
-        sys.exit('❌ No hay .zip ni .rar en esta carpeta.')
+        sys.exit('❌ El ZIP no contiene imágenes ni RARs anidados.')
 
     sin_unrar = [f for f in fuentes
                  if isinstance(f, FuenteRar) and not hay_unrar()]
