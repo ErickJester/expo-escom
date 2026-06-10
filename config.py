@@ -22,11 +22,16 @@ MAX_PER_CLASS = 500     # imgs por clase de cartoon
 MAX_OTRA      = 3500    # imgs totales de la clase "otra"
 
 BATCH_SIZE    = 32
-NUM_EPOCHS_P1 = 6       # Fase 1: solo cabeza
-NUM_EPOCHS_P2 = 6       # Fase 2: fine-tuning
+NUM_EPOCHS_P1 = 5       # Fase 1: solo cabeza
+NUM_EPOCHS_P2 = 15      # Fase 2: fine-tuning (con early stopping)
 LR_PHASE1     = 1e-3
-LR_PHASE2     = 1e-5
-THRESHOLD     = 0.5
+LR_PHASE2     = 1e-4    # con cosine annealing hacia 0
+THRESHOLD     = 0.5     # fallback; el entrenamiento ajusta umbral por clase
+
+UNFREEZE_BLOCKS     = 6     # bloques del backbone a descongelar en Fase 2
+EARLY_STOP_PATIENCE = 5     # épocas sin mejora de F1 antes de cortar Fase 2
+LABEL_SMOOTH        = 0.05  # suavizado de etiquetas para BCE
+POS_WEIGHT_MAX      = 20.0  # tope del pos_weight por clase
 
 VAL_SPLIT     = 0.2     # 20% validación
 SEED          = 42

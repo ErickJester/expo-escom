@@ -5,13 +5,22 @@ __pycache__/
 venv/
 env/
 
-# Modelos y artefactos pesados (descomenta si no quieres versionarlos)
-# models/*.pt
+# Modelos entrenados (binarios pesados)
+models/*.pt
 
 # Dataset de imágenes (muy pesado, no se versiona)
 dataset/*
 # pero conservamos la carpeta para mantener la estructura
 !dataset/.gitkeep
+
+# Fuentes de estandarización (ZIP/RAR pesados + imágenes raw)
+sinEstandarizar/*.zip
+sinEstandarizar/*.rar
+sinEstandarizar/*.jpg
+sinEstandarizar/*.jpeg
+sinEstandarizar/*.png
+sinEstandarizar/*.webp
+sinEstandarizar/tmp_extract/
 
 # Notebooks checkpoints
 .ipynb_checkpoints/

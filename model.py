@@ -30,6 +30,7 @@ class CartoonClassifier(nn.Module):
         )
 
         # Fase 1: backbone congelado, solo entrena la cabeza
+        self._unfrozen = 0
         for p in self.features.parameters():
             p.requires_grad = False
 
@@ -38,10 +39,27 @@ class CartoonClassifier(nn.Module):
         x = self.avgpool(x)
         return self.head(torch.flatten(x, 1))    # logits [B, num_classes]
 
+    def train(self, mode=True):
+        """
+        Mantiene en eval los BatchNorm de los bloques congelados: sus convs
+        no se actualizan, así que dejar que sus running stats deriven hacia
+        el dataset de caricaturas solo desajusta las features de ImageNet.
+        """
+        super().train(mode)
+        if mode:
+            blocks = list(self.features.children())
+            frozen = blocks[:len(blocks) - self._unfrozen]
+            for block in frozen:
+                for m in block.modules():
+                    if isinstance(m, nn.BatchNorm2d):
+                        m.eval()
+        return self
+
     def unfreeze_last_n(self, n=3):
-        """Descongela las últimas n capas del backbone (Fase 2)."""
+        """Descongela los últimos n bloques del backbone (Fase 2)."""
+        self._unfrozen = n
         for layer in list(self.features.children())[-n:]:
             for p in layer.parameters():
                 p.requires_grad = True
         t = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        print(f"   🔥 {n} capas descongeladas → {t:,} params entrenables")
+        print(f"   🔥 {n} bloques descongelados → {t:,} params entrenables")

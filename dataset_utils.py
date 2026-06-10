@@ -72,19 +72,49 @@ def build_samples(root_dir, classes, max_per_class, max_otra, seed=C.SEED):
     return all_samples
 
 
+def stratified_split(samples, val_frac=C.VAL_SPLIT, seed=C.SEED):
+    """
+    Split train/val manteniendo la proporción de cada clase.
+    Un corte plano sobre la lista mezclada puede dejar clases
+    sub-representadas en validación cuando hay desbalance (otra = 7x).
+    """
+    rng = np.random.default_rng(seed)
+    by_class = {}
+    for path, label in samples:
+        by_class.setdefault(int(np.argmax(label)), []).append((path, label))
+
+    train, val = [], []
+    for items in by_class.values():
+        rng.shuffle(items)
+        k = max(1, int(len(items) * val_frac))
+        val.extend(items[:k])
+        train.extend(items[k:])
+    rng.shuffle(train)
+    rng.shuffle(val)
+    return train, val
+
+
 def get_transforms():
-    """Devuelve (transform_train, transform_val)."""
+    """
+    Devuelve (transform_train, transform_val).
+
+    El color es la señal más discriminativa entre caricaturas (paletas
+    fijas por serie), así que el jitter de saturación/tono es mínimo.
+    RandomResizedCrop evita la distorsión de aspecto de Resize((S,S)).
+    """
     transform_train = transforms.Compose([
-        transforms.Resize((C.IMG_SIZE, C.IMG_SIZE)),
+        transforms.RandomResizedCrop(C.IMG_SIZE, scale=(0.6, 1.0),
+                                     ratio=(0.8, 1.25)),
         transforms.RandomHorizontalFlip(0.5),
-        transforms.ColorJitter(brightness=0.3, contrast=0.3,
-                               saturation=0.2, hue=0.1),
-        transforms.RandomRotation(15),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2,
+                               saturation=0.1, hue=0.02),
         transforms.ToTensor(),
         transforms.Normalize(C.IMAGENET_MEAN, C.IMAGENET_STD),
+        transforms.RandomErasing(p=0.15, scale=(0.02, 0.15)),
     ])
     transform_val = transforms.Compose([
-        transforms.Resize((C.IMG_SIZE, C.IMG_SIZE)),
+        transforms.Resize(int(C.IMG_SIZE * 256 / 224)),
+        transforms.CenterCrop(C.IMG_SIZE),
         transforms.ToTensor(),
         transforms.Normalize(C.IMAGENET_MEAN, C.IMAGENET_STD),
     ])
