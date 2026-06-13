@@ -13,6 +13,7 @@ metadata:
 - **v3.1.1:** tqdm.notebook progress bars (indeterminate for count, determinate for move)
 - **v3.1.2:** Fix cannotAddParent 403 in mover_contenido (catch + removeParents only if already in dest)
 - **v4.0.0:** Option [3] Completar a 100k — augment ONLY the deficit (e.g. pokemon 92k → gen 8k)
+- **v4.1.0:** Option [2] changed from MOVE to COPY. Drive removed multi-parent (2020), so the `cannotAddParent` error from the old move can't be worked around by keeping both parents — to leave a copy in the subfolder you must `files().copy()` (new ID, doubles storage). `mover_contenido` → `copiar_contenido`: copies file-by-file, skips names already in destino (re-run safe), skips folders (copy() can't copy folders). Subfolder is NOT emptied, so the trash-empty-subfolder step was removed.
 
 **Option [3] details (v4.0.0):**
 - Requires acceso directo (shortcut) in MyDrive → mounts as ruta montada
