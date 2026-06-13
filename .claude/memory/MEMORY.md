@@ -1,0 +1,5 @@
+- [ExpoEscom Overview](project_overview.md) — multi-label cartoon/anime image classifier (PyTorch MobileNetV2)
+- [Dataset Format](dataset_format.md) — 100% .jpg only; opción [1] counts/[3] augments to 100k exact
+- [00_conteo_dataset.ipynb Versions](notebook_versions.md) — v4.0.0: menu [1] count, [2] flatten, [3] augment to 100k
+- [cannotAddParent Bug (v3.1.2 fix)](drive_api_issue.md) — partial runs leave dual parents; fix catches 403 and cleans parent
+- [User Preferences](user_style.md) — Spanish interface; prefers single commit per feature; no explanations unless why is non-obvious
