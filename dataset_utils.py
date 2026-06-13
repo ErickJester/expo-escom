@@ -98,19 +98,24 @@ def get_transforms():
     """
     Devuelve (transform_train, transform_val).
 
-    El color es la señal más discriminativa entre caricaturas (paletas
-    fijas por serie), así que el jitter de saturación/tono es mínimo.
-    RandomResizedCrop evita la distorsión de aspecto de Resize((S,S)).
+    Augmentations calibradas para el caso de uso real: imagen impresa en papel
+    fotografiada con webcam de laptop en condiciones de expo (iluminación de
+    salón, papel sostenido a mano con leve inclinación, cámara no parfectamente
+    enfocada). Se aumentó jitter, se añadió perspectiva, blur y más erasing.
+    El hue sigue acotado: el color es la señal más discriminativa entre series.
     """
     transform_train = transforms.Compose([
-        transforms.RandomResizedCrop(C.IMG_SIZE, scale=(0.6, 1.0),
-                                     ratio=(0.8, 1.25)),
+        transforms.RandomResizedCrop(C.IMG_SIZE, scale=(0.5, 1.0),
+                                     ratio=(0.75, 1.33)),
         transforms.RandomHorizontalFlip(0.5),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2,
-                               saturation=0.1, hue=0.02),
+        transforms.RandomPerspective(distortion_scale=0.3, p=0.5),
+        transforms.RandomRotation(degrees=12),
+        transforms.ColorJitter(brightness=0.4, contrast=0.4,
+                               saturation=0.2, hue=0.05),
+        transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.5)),
         transforms.ToTensor(),
         transforms.Normalize(C.IMAGENET_MEAN, C.IMAGENET_STD),
-        transforms.RandomErasing(p=0.15, scale=(0.02, 0.15)),
+        transforms.RandomErasing(p=0.25, scale=(0.02, 0.2)),
     ])
     transform_val = transforms.Compose([
         transforms.Resize(int(C.IMG_SIZE * 256 / 224)),
