@@ -25,6 +25,8 @@ metadata:
 - Guard MAX_AUG=30k (won't augment >30k per class — dataset quality check)
 - Uploads new .jpgs to Drive with tqdm progress
 
+**v4.4.0:** Option [1] (Contabilizar) now has a sub-option to count all datasets at once, excluding the "otra" folder. Shows per-class breakdown and total sum.
+
 **Setup:** Run cells 1→4 once (auth, config, helpers, options). Then cell-6 (menu) repeatedly.
 
 **Config (cell-2):**
