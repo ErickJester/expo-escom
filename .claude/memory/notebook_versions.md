@@ -27,6 +27,8 @@ metadata:
 
 **v4.4.0:** Option [1] (Contabilizar) now has a sub-option to count all datasets at once, excluding the "otra" folder. Shows per-class breakdown and total sum.
 
+**v4.6.0:** New option [2] `opcion_contar_subcarpetas` — counts a container folder "por dentro" via Drive API. Pick a folder (e.g. «otra»), then choose DESGLOSAR (count each subfolder separately + total, e.g. see «noise» nested inside «otra») or TOTAL (everything inside as one number). Pure API so it sees subfolders even before Drive UI shows them (user's noise folder wasn't visible in web UI but API counted 250k fine). Menu renumbered: copiar→[3], augment FUSE→[4], augment API→[5].
+
 **v4.5.0:** Colab Pro+ tuning. Key insight baked into config comments: everything except augmentation is Drive-API-quota bound, NOT hardware bound — reads (list/count) have high quota → scale with threads; writes (copy/create) have low quota → past ~10 threads only 429s. Changes: [1] "todos los datasets" count now PARALLEL (`NUM_COUNT_WORKERS=12`, thread-local service via `_servicio_por_hilo()`, `_contar_recursivo` extracted from `contar_imagenes`); [2] copy 8→10; [3] augment 4→8 + upload loop parallelized (was sequential); [4] own `NUM_AUG_API_WORKERS=12` instead of reusing copy workers.
 
 **Setup:** Run cells 1→4 once (auth, config, helpers, options). Then cell-6 (menu) repeatedly.
