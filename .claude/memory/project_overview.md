@@ -18,6 +18,6 @@ metadata:
 - `verificar_gpu.py` — validate normalization + GPU
 - `00_conteo_dataset.ipynb` (Colab) — v4.0.0: dataset utilities menu
 
-**Colab (ToonVerse_Training.ipynb):** A100, 2.6M images, all local improvements ported. Also: `01_estandarizar_pokemon_fusion_1.ipynb` (v3.1.0) and `09_augmentacion_100k_3.ipynb` for fill-to-100k.
+**Colab (ToonVerse_Training.ipynb):** A100, 2.6M images, all local improvements ported. Also: `01_estandarizar_pokemon_fusion_1.ipynb` (v4.0.0 — generic ZIP/RAR→class standardizer, now used for 250k `noise`/`otra`; Colab Pro+ optimized: parallel downloads, MAX_WORKERS=12, parallel augment fallback, disk guard) and `09_augmentacion_100k_3.ipynb` for fill-to-100k.
 
 **Dataset:** Currently pokemon + yugioh in shared Drive folder (FOLDER_ID). All `.jpg` only.
