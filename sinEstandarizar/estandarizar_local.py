@@ -1,7 +1,7 @@
 """
 Estandarización local — GENÉRICA (cualquier clase) · versión FUSIÓN
 ExpoEscom — Clasificador Multietiqueta
-Versión 3.0.0
+(la versión exacta está en la constante VERSION, más abajo)
 
 Equivalente LOCAL del notebook 01_estandarizar_pokemon_fusion_1.ipynb.
 Toda la lógica del notebook, pero leyendo los archivos desde la carpeta
@@ -9,9 +9,9 @@ sinEstandarizar/ en vez de descargarlos de Google Drive.
 
 En cada ejecución el programa pregunta:
   PASO 1 — La carpeta DESTINO dentro de dataset/ (la clase: poke, naruto, ...).
-  PASO 2 — Lista TODOS los .zip / .rar de sinEstandarizar/ NUMERADOS y tú
-           escribes los números separados por coma (ej.  1,3,4) para elegir
-           cuáles estandarizar a la vez. También aceptas "todos".
+  PASO 2 — El MODO: [1] estandarizar fuentes ó [2] solo augmentar. Si eliges
+           estandarizar, lista los .zip / .rar / carpetas NUMERADOS y tú
+           escribes los números separados por coma (ej.  1,3,4) o "todos".
 
 Los archivos elegidos se tratan como UN solo trabajo con cuotas inteligentes
 (las fuentes chicas entran completas, el resto se reparte entre las grandes),
@@ -30,9 +30,15 @@ Características portadas del notebook fusión:
        2) último recurso: rellena con augmentación PARALELA (flip, rotación,
           brillo, contraste, zoom) hasta completar la meta.
 
+En PASO 2 eliges el MODO:
+  [1] Estandarizar fuentes (y augmentar si falta para la meta).
+  [2] Solo augmentar lo que ya hay en la carpeta destino hasta la meta
+      (no procesa ninguna fuente nueva). Equivale a --solo-augmentar.
+
 Uso:
     python estandarizar_local.py --max 200000     # meta total (pregunta clase + archivos)
     python estandarizar_local.py --inventario     # solo lista fuentes y cuenta
+    python estandarizar_local.py --max 200000 --solo-augmentar   # rellena sin fuentes
     python estandarizar_local.py --max 200000 --workers 8
 
 Para los .rar (directos o anidados) necesitas unrar en el PATH:
@@ -78,8 +84,9 @@ except ImportError:  # fallback mínimo si tqdm no está instalado
 warnings.filterwarnings('ignore', category=UserWarning, module='PIL')
 
 # La consola de Windows suele venir en cp1252 y no puede imprimir los caracteres
-# de caja/emoji que usa este programa. Forzamos UTF-8 en la salida.
-for _stream in (sys.stdout, sys.stderr):
+# de caja/emoji que usa este programa. Forzamos UTF-8 en entrada y salida (así
+# input() también lee bien lo que se escribe o se canaliza, incluido el BOM).
+for _stream in (sys.stdin, sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding='utf-8', errors='replace')
     except Exception:
@@ -112,7 +119,12 @@ for _stream in (sys.stdout, sys.stderr):
 #         existentes y la relajación progresiva del umbral. Toda imagen
 #         válida se acepta hasta llenar la meta. Flags --umbral y
 #         --filtro-existentes retirados; .mp4 añadido a EXTENSIONES_IMAGEN.
-VERSION = '4.0.0'
+# 4.1.0 → Nuevo MODO en PASO 2: [1] estandarizar fuentes (lo de siempre) ó
+#         [2] SOLO augmentar las imágenes que ya hay en la carpeta destino
+#         hasta --max, sin procesar ningún ZIP/RAR/carpeta nuevo (también
+#         como flag --solo-augmentar; ignora --min-augmentar). Resumen final
+#         extraído a resumen_final() para compartirlo entre ambos modos.
+VERSION = '4.1.0'
 
 # ── Configuración fija ───────────────────────────────────────
 SCRIPT_DIR   = Path(__file__).resolve().parent
@@ -697,6 +709,24 @@ def seleccionar_archivos():
         return elegidos
 
 
+def elegir_modo():
+    """Pregunta si estandarizar fuentes nuevas o solo augmentar lo que ya hay
+    en la carpeta destino. Devuelve 'estandarizar' o 'augmentar'."""
+    print()
+    print('PASO 2 — ¿Qué quieres hacer?')
+    print('  [1] Estandarizar fuentes (ZIP/RAR/carpeta) y completar con')
+    print('      augmentación si falta para la meta.   ← lo normal')
+    print('  [2] SOLO augmentar las imágenes que YA hay en esta carpeta')
+    print('      hasta la meta (no procesa ninguna fuente nueva).')
+    while True:
+        sel = input('➡️  Opción [1/2]: ').replace('﻿', '').strip()
+        if sel == '1':
+            return 'estandarizar'
+        if sel == '2':
+            return 'augmentar'
+        print('   ⚠️  Escribe 1 o 2.')
+
+
 # =============================================================================
 # PIPELINE (rondas paralelas con redistribución de déficit)
 # =============================================================================
@@ -807,6 +837,71 @@ def rellenar_augmentando(pbar, checkpoint):
     return n_aug
 
 
+def resumen_final(total_final, n_augmentadas, fallidas, t0_total):
+    """Verifica una muestra y muestra el resumen final (común a ambos modos)."""
+    reales    = total_final - n_augmentadas
+    muestra   = list(DESTINO_CLASE.glob(f'{CLASE}_*.jpg'))
+    muestra_n = random.sample(muestra, min(100, len(muestra))) if muestra else []
+    malas = 0
+    for ruta in muestra_n:
+        try:
+            with Image.open(ruta) as img:
+                assert img.size == IMG_SIZE and img.mode == 'RGB'
+        except Exception:
+            malas += 1
+
+    print('\n' + '═' * 55)
+    print('RESUMEN FINAL')
+    print('═' * 55)
+    print(f'  Imágenes en disco       : {total_final:,}')
+    print(f'    · reales (fuentes)    : {reales:,}')
+    print(f'    · augmentadas (run)   : {n_augmentadas:,}')
+    print(f'  Archivos fallidos       : {fallidas:,}')
+    print(f'  Verificación            : {len(muestra_n)-malas}/{len(muestra_n)} '
+          f'válidas (224x224 RGB)')
+    print(f'  Meta                    : {MAX_IMAGENES:,}')
+    print(f'  Tiempo total            : {(time.time()-t0_total)/60:.1f} min')
+    if total_final == MAX_IMAGENES:
+        estado = '✅ EXACTO — meta lograda'
+    elif total_final > MAX_IMAGENES:
+        estado = f'⚠️ {total_final - MAX_IMAGENES} de más (revisa cortes)'
+    else:
+        estado = '⚠️ INCOMPLETO — no se alcanzó la meta (¿sin imágenes base?)'
+    print(f'  Estado                  : {estado}')
+    print(f'  Destino                 : {DESTINO_CLASE}')
+
+
+def ejecutar_solo_augmentar():
+    """Modo SOLO AUGMENTAR: no estandariza ninguna fuente nueva; rellena la
+    carpeta destino con imágenes augmentadas (a partir de las que ya hay)
+    hasta alcanzar --max. Ignora --min-augmentar: el usuario lo pidió
+    explícitamente."""
+    ya_tenemos = len(list(DESTINO_CLASE.glob(f'{CLASE}_*.jpg')))
+    print(f'\nClase / destino : {DESTINO_CLASE}')
+    print('Modo            : SOLO AUGMENTAR (no se procesa ninguna fuente nueva)')
+    print(f'Ya tenemos      : {ya_tenemos:,}')
+    print(f'Meta            : {MAX_IMAGENES:,}')
+    print(f'Faltan          : {_cupo_restante():,}')
+
+    if _cupo_restante() == 0:
+        print('✅ Ya hay suficientes imágenes en destino. Nada que hacer.')
+        return
+    if ya_tenemos == 0:
+        print('❌ La carpeta destino está vacía: no hay imágenes base para augmentar.')
+        print('   Estandariza al menos una fuente primero y vuelve a intentar.')
+        return
+
+    checkpoint = cargar_checkpoint()
+    t0_total = time.time()
+    print('\n' + '═' * 55)
+    print('AUGMENTACIÓN (sin estandarizar fuentes)')
+    print('═' * 55)
+    n_augmentadas = rellenar_augmentando(None, checkpoint)
+
+    total_final = len(list(DESTINO_CLASE.glob(f'{CLASE}_*.jpg')))
+    resumen_final(total_final, n_augmentadas, 0, t0_total)
+
+
 # =============================================================================
 # MAIN
 # =============================================================================
@@ -823,14 +918,18 @@ def main():
                              '(incluye las que ya existen). Default: 500')
     parser.add_argument('--inventario', action='store_true',
                         help='Solo lista fuentes y cuenta imágenes, sin extraer')
+    parser.add_argument('--solo-augmentar', action='store_true',
+                        help='No estandariza ninguna fuente: solo augmenta las '
+                             'imágenes que ya hay en la carpeta destino hasta '
+                             '--max (ignora --min-augmentar)')
     parser.add_argument('--workers', type=int, default=MAX_WORKERS,
                         help=f'Hilos de extracción en paralelo. Default: {MAX_WORKERS}')
     parser.add_argument('--no-exacto', action='store_true',
-                        help='No fuerza la meta exacta (sin umbral progresivo '
-                             'ni augmentación de relleno)')
+                        help='No fuerza la meta exacta (no rellena con '
+                             'augmentación si las fuentes se agotan)')
     parser.add_argument('--sin-augmentar', action='store_true',
-                        help='Permite relajar el umbral pero NO rellena con '
-                             'imágenes augmentadas')
+                        help='NO rellena con imágenes augmentadas aunque '
+                             'falten para la meta')
     parser.add_argument('--min-augmentar', type=int, default=170_000,
                         help='Mínimo de imágenes guardadas para que la '
                              'augmentación de relleno se active. '
@@ -852,8 +951,9 @@ def main():
     print('  1. Coloca tus .zip / .rar dentro de la carpeta sinEstandarizar/')
     print('     (pueden contener imágenes directas o RARs anidados).')
     print('  2. Indica la carpeta DESTINO dentro de dataset/ (la clase).')
-    print('  3. Elige los archivos a procesar por NÚMERO, separados por coma.')
-    print('  4. Las imágenes se guardan como <clase>_NNNNNN.jpg (224x224 RGB).')
+    print('  3. Elige el modo: [1] estandarizar fuentes  ó  [2] solo augmentar.')
+    print('  4. Si estandarizas, elige los archivos por NÚMERO (separados por coma).')
+    print('  5. Las imágenes se guardan como <clase>_NNNNNN.jpg (224x224 RGB).')
     backend = 'cv2 (rápido)' if USAR_CV2 else 'PIL (instala opencv-python-headless para 3-5x)'
     print(f'  • Meta (--max): {MAX_IMAGENES:,}   ·   Workers: {MAX_WORKERS}')
     print(f'  • Backend de imagen: {backend}')
@@ -866,6 +966,18 @@ def main():
     CHECKPOINT_PATH = DESTINO_CLASE / '_checkpoint.json'
     DESTINO_CLASE.mkdir(parents=True, exist_ok=True)
     _inicializar_indice()
+
+    # ── ¿Estandarizar fuentes nuevas o solo augmentar? ───────
+    if args.inventario:
+        solo_aug = False
+    elif args.solo_augmentar:
+        solo_aug = True
+    else:
+        solo_aug = (elegir_modo() == 'augmentar')
+
+    if solo_aug:
+        ejecutar_solo_augmentar()
+        return
 
     # ── PASO 2: elegir archivos (números separados por coma) ─
     elegidos = seleccionar_archivos()
@@ -969,36 +1081,7 @@ def main():
 
     # ── Verificación + resumen ───────────────────────────────
     total_final = len(list(DESTINO_CLASE.glob(f'{CLASE}_*.jpg')))
-    reales      = total_final - n_augmentadas
-    muestra     = list(DESTINO_CLASE.glob(f'{CLASE}_*.jpg'))
-    muestra_n   = random.sample(muestra, min(100, len(muestra))) if muestra else []
-    malas = 0
-    for ruta in muestra_n:
-        try:
-            with Image.open(ruta) as img:
-                assert img.size == IMG_SIZE and img.mode == 'RGB'
-        except Exception:
-            malas += 1
-
-    print('\n' + '═' * 55)
-    print('RESUMEN FINAL')
-    print('═' * 55)
-    print(f'  Imágenes en disco       : {total_final:,}')
-    print(f'    · reales (fuentes)    : {reales:,}')
-    print(f'    · augmentadas         : {n_augmentadas:,}')
-    print(f'  Archivos fallidos       : {estado_global["fallidas"]:,}')
-    print(f'  Verificación            : {len(muestra_n)-malas}/{len(muestra_n)} '
-          f'válidas (224x224 RGB)')
-    print(f'  Meta                    : {MAX_IMAGENES:,}')
-    print(f'  Tiempo total            : {(time.time()-t0_total)/60:.1f} min')
-    if total_final == MAX_IMAGENES:
-        estado = '✅ EXACTO — meta lograda'
-    elif total_final > MAX_IMAGENES:
-        estado = f'⚠️ {total_final - MAX_IMAGENES} de más (revisa cortes)'
-    else:
-        estado = '⚠️ INCOMPLETO — fuentes agotadas (¿sin imágenes base?)'
-    print(f'  Estado                  : {estado}')
-    print(f'  Destino                 : {DESTINO_CLASE}')
+    resumen_final(total_final, n_augmentadas, estado_global['fallidas'], t0_total)
 
 
 if __name__ == '__main__':
