@@ -18,24 +18,22 @@ Los archivos elegidos se tratan como UN solo trabajo con cuotas inteligentes
 y las imágenes se guardan en ../dataset/<clase>/ como <clase>_NNNNNN.jpg
 (224x224 RGB JPG).
 
-Características portadas del notebook fusión (v4.0.0):
+Características portadas del notebook fusión:
   • Procesamiento PARALELO por fuente (ThreadPoolExecutor, MAX_WORKERS).
-  • Filtro de variedad dHash THREAD-SAFE (descarta imágenes casi idénticas).
+  • GIF y MP4: se extrae UN frame aleatorio y se guarda como JPG.
   • Contador global atómico → corte EXACTO en la meta (nunca de más).
   • Cuotas inteligentes con redistribución de déficit por rondas.
   • RARs anidados dentro de ZIPs (requiere unrar).
   • Checkpoint en la carpeta destino → resume automático tras un corte.
   • Garantía de meta EXACTA (FASE B):
-       1) pase normal con umbral base,
-       2) relaja el umbral dHash en pasos hasta UMBRAL_MAX y reintenta,
-       3) último recurso: rellena con augmentación PARALELA (flip, rotación,
+       1) pase normal: se acepta toda imagen válida (sin filtro de similitud),
+       2) último recurso: rellena con augmentación PARALELA (flip, rotación,
           brillo, contraste, zoom) hasta completar la meta.
 
 Uso:
     python estandarizar_local.py --max 200000     # meta total (pregunta clase + archivos)
     python estandarizar_local.py --inventario     # solo lista fuentes y cuenta
-    python estandarizar_local.py --max 200000 --filtro-existentes
-    python estandarizar_local.py --max 200000 --workers 8 --umbral 8
+    python estandarizar_local.py --max 200000 --workers 8
 
 Para los .rar (directos o anidados) necesitas unrar en el PATH:
     Windows : instala WinRAR (UnRAR.exe) o  `choco install unrar` / `winget install`
@@ -107,7 +105,14 @@ for _stream in (sys.stdout, sys.stderr):
 #         archivos Unicode-safe en Windows (np.fromfile / buf.tofile).
 # 3.5.0 → Por defecto YA NO indexa las imágenes existentes (arranque
 #         directo). Usa --filtro-existentes para reactivar el indexado.
-VERSION = '3.5.0'
+# 4.0.0 → GIF y MP4: se extrae UN frame aleatorio y se guarda como JPG
+#         (GIF animado vía PIL.seek; MP4 vía cv2.VideoCapture, frame del
+#         primer tercio del clip). Filtro de similitud dHash ELIMINADO por
+#         completo: se retiran IndiceSimilitud, dhash, el indexado de
+#         existentes y la relajación progresiva del umbral. Toda imagen
+#         válida se acepta hasta llenar la meta. Flags --umbral y
+#         --filtro-existentes retirados; .mp4 añadido a EXTENSIONES_IMAGEN.
+VERSION = '4.0.0'
 
 # ── Configuración fija ───────────────────────────────────────
 SCRIPT_DIR   = Path(__file__).resolve().parent
@@ -117,11 +122,9 @@ SEED         = 42
 TMP_DIR      = SCRIPT_DIR / 'tmp_extract'
 TMP_EXTRACT  = TMP_DIR / 'extract'
 
-EXTENSIONES_IMAGEN = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
+# GIF y MP4: se extrae un frame aleatorio y se guarda como JPG
+EXTENSIONES_IMAGEN = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif', '.mp4'}
 EXT_SOPORTADAS     = {'.zip', '.rar'}
-
-HASH_SIZE        = 8    # dHash 8x8 → 64 bits
-UMBRAL_SIMILITUD = 8    # distancia Hamming máxima para considerar "similar"
 
 # ── Paralelismo y rondas ─────────────────────────────────────
 # Ryzen 7 5700X: 8 cores / 16 threads.
@@ -130,12 +133,10 @@ UMBRAL_SIMILITUD = 8    # distancia Hamming máxima para considerar "similar"
 # y el hilo principal sin saturar el scheduler.
 MAX_WORKERS = min(14, (os.cpu_count() or 4))   # hilos de extracción simultáneos
 LOTE_MULT   = 5    # 32 GB RAM → batches más grandes, menos llamadas a unrar
-MAX_RONDAS  = 8    # rondas de redistribución de déficit por umbral
+MAX_RONDAS  = 8    # rondas de redistribución de déficit entre fuentes
 
 # ── Garantía de la meta EXACTA ───────────────────────────────
 GARANTIZAR_EXACTO = True   # se puede desactivar con --no-exacto
-UMBRAL_MAX        = 20     # tope al relajar el umbral (0 = idénticas permitidas)
-UMBRAL_PASO       = 4      # cuánto sube el umbral en cada reintento
 PERMITIR_AUGMENT  = True   # último recurso: rellenar con augmentación
 
 # ── Estado global (se fija en main) ──────────────────────────
@@ -158,15 +159,68 @@ def hay_unrar():
 
 
 # =============================================================================
-# FILTRO DE VARIEDAD (dHash thread-safe)
+# BACKEND DE IMAGEN (cv2 rápido / PIL fallback) + lectura de fuentes
 # =============================================================================
 
-# ── Backend de imagen: cv2 (rápido) o PIL (fallback) ─────────
 # En modo cv2 una "imagen" es un ndarray BGR (HxWx3). En modo PIL es un
-# Image. Estos 3 helpers ocultan la diferencia al resto del programa.
+# Image RGB. Estos helpers ocultan la diferencia al resto del programa.
+# GIF animado → frame aleatorio (PIL.seek).  MP4 → frame del primer tercio
+# (cv2.VideoCapture). Ambos se devuelven en el tipo del backend activo.
 
-def leer_bytes(data):
-    """Decodifica bytes de imagen → ndarray BGR (cv2) o Image (PIL). None si falla."""
+def _a_backend(img_pil_rgb):
+    """Convierte una PIL RGB al tipo del backend activo (BGR ndarray si cv2)."""
+    if USAR_CV2:
+        return cv2.cvtColor(np.array(img_pil_rgb), cv2.COLOR_RGB2BGR)
+    return img_pil_rgb
+
+
+def _frame_de_gif(fp):
+    """Frame aleatorio de un GIF (animado o no) en el tipo del backend.
+    fp = ruta o BytesIO. None si falla."""
+    try:
+        img = Image.open(fp)
+        n = getattr(img, 'n_frames', 1)
+        if n > 1:
+            try:
+                img.seek(random.randint(0, n - 1))
+            except EOFError:
+                img.seek(0)
+        return _a_backend(img.convert('RGB'))
+    except Exception:
+        return None
+
+
+def _frame_de_video(ruta):
+    """Frame del primer tercio de un MP4 (BGR ndarray). Requiere cv2; sin cv2
+    devuelve None (no se puede decodificar video). None si falla."""
+    if not USAR_CV2:
+        return None
+    try:
+        cap = cv2.VideoCapture(str(ruta))
+        total = max(1, int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, random.randint(0, total // 3))
+        ok, frame = cap.read()
+        cap.release()
+        return frame if ok else None
+    except Exception:
+        return None
+
+
+def leer_bytes(data, nombre=''):
+    """Decodifica los bytes de una entrada → ndarray BGR (cv2) o Image (PIL).
+    GIF/MP4 → un frame. None si falla."""
+    ext = Path(nombre).suffix.lower()
+    if ext == '.gif':
+        return _frame_de_gif(io.BytesIO(data))
+    if ext == '.mp4':
+        # cv2.VideoCapture necesita un archivo en disco
+        TMP_EXTRACT.mkdir(parents=True, exist_ok=True)
+        tmp = TMP_EXTRACT / f'_vid_{threading.get_ident()}.mp4'
+        tmp.write_bytes(data)
+        try:
+            return _frame_de_video(tmp)
+        finally:
+            tmp.unlink(missing_ok=True)
     if USAR_CV2:
         return cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     try:
@@ -176,8 +230,13 @@ def leer_bytes(data):
 
 
 def leer_archivo(ruta):
-    """Lee un archivo de disco → ndarray BGR (cv2) o Image (PIL). None si falla.
-    np.fromfile/Image manejan rutas con caracteres Unicode en Windows."""
+    """Lee un archivo de disco → ndarray BGR (cv2) o Image (PIL). GIF/MP4 → un
+    frame. np.fromfile/Image manejan rutas Unicode en Windows. None si falla."""
+    ext = Path(ruta).suffix.lower()
+    if ext == '.gif':
+        return _frame_de_gif(ruta)
+    if ext == '.mp4':
+        return _frame_de_video(ruta)
     if USAR_CV2:
         try:
             return cv2.imdecode(np.fromfile(str(ruta), np.uint8), cv2.IMREAD_COLOR)
@@ -204,91 +263,6 @@ def guardar_estandarizada(img, dest):
     else:
         img.resize(IMG_SIZE, Image.LANCZOS).save(
             dest, 'JPEG', quality=90, optimize=True)
-
-
-def dhash(img):
-    """Hash perceptual de 64 bits (gradiente horizontal en rejilla 8x8),
-    vectorizado con numpy. Acepta ndarray BGR (cv2) o Image (PIL)."""
-    if USAR_CV2:
-        gris  = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        chico = cv2.resize(gris, (HASH_SIZE + 1, HASH_SIZE),
-                           interpolation=cv2.INTER_AREA)
-    else:
-        # BILINEAR basta para 9x8 px (la calidad no afecta el hash) y es rápido
-        g = img.convert('L').resize((HASH_SIZE + 1, HASH_SIZE), Image.BILINEAR)
-        chico = np.asarray(g, dtype=np.uint8)
-    diff = chico[:, 1:] > chico[:, :-1]                  # (8,8) booleano
-    return int.from_bytes(np.packbits(diff.ravel()).tobytes(), 'big')
-
-
-class IndiceSimilitud:
-    """
-    Índice de hashes perceptuales THREAD-SAFE para descartar imágenes muy
-    parecidas, aun cuando varios hilos procesan fuentes en paralelo.
-
-    Cada hash se indexa por sus 4 bloques de 16 bits: dos imágenes similares
-    comparten casi siempre al menos un bloque exacto, así cada consulta
-    compara contra un puñado de candidatos en vez de contra todo el dataset.
-    """
-
-    def __init__(self, umbral=UMBRAL_SIMILITUD):
-        self.umbral   = umbral
-        self._buckets = [{}, {}, {}, {}]
-        self._lock    = threading.Lock()
-
-    @staticmethod
-    def _bloques(h):
-        return ((h >> 48) & 0xFFFF, (h >> 32) & 0xFFFF,
-                (h >> 16) & 0xFFFF, h & 0xFFFF)
-
-    def _es_similar_unsafe(self, h):
-        vistos = set()
-        for i, b in enumerate(self._bloques(h)):
-            for otro in self._buckets[i].get(b, ()):
-                if otro in vistos:
-                    continue
-                vistos.add(otro)
-                if bin(h ^ otro).count('1') <= self.umbral:
-                    return True
-        return False
-
-    def _agregar_unsafe(self, h):
-        for i, b in enumerate(self._bloques(h)):
-            self._buckets[i].setdefault(b, []).append(h)
-
-    def verificar_y_agregar(self, h):
-        """ATÓMICO: si h no es similar a ninguno, lo agrega y devuelve True
-        (la imagen pasa). Si es similar, devuelve False (descartar)."""
-        with self._lock:
-            if self._es_similar_unsafe(h):
-                return False
-            self._agregar_unsafe(h)
-            return True
-
-    def agregar(self, h):
-        with self._lock:
-            self._agregar_unsafe(h)
-
-    def set_umbral(self, nuevo):
-        """Relaja (o endurece) el umbral de similitud en caliente."""
-        with self._lock:
-            self.umbral = nuevo
-
-
-def indexar_existentes(indice):
-    """Hashea lo que ya está en destino para que las imágenes nuevas tampoco
-    repitan lo ya guardado (resume coherente)."""
-    rutas = list(DESTINO_CLASE.glob('*.jpg'))
-    if not rutas:
-        print('No hay imágenes previas que indexar.')
-        return
-    print(f'Indexando {len(rutas):,} imágenes existentes…')
-    t0 = time.time()
-    for ruta in tqdm(rutas, unit='img'):
-        img = leer_archivo(ruta)
-        if img is not None:
-            indice.agregar(dhash(img))
-    print(f'Listo en {(time.time()-t0)/60:.1f} min')
 
 
 # =============================================================================
@@ -340,16 +314,13 @@ def _inicializar_indice():
     _total_guardadas[0] = n_existentes
 
 
-def procesar_imagen(img, indice, pbar):
-    """Filtro de variedad + corte exacto + estandarización + guardado.
-    Devuelve True si se guardó, False si se descartó (similar o sin cupo)."""
-    # 1) Filtro de variedad
-    if not indice.verificar_y_agregar(dhash(img)):
-        return False
-    # 2) Reservar cupo: corta EXACTAMENTE en MAX_IMAGENES
+def procesar_imagen(img, pbar):
+    """Corte exacto + estandarización + guardado. Sin filtro de similitud.
+    Devuelve True si se guardó, False si no había cupo o falló el guardado."""
+    # 1) Reservar cupo: corta EXACTAMENTE en MAX_IMAGENES
     if not _reservar_cupo():
         return False
-    # 3) Estandarizar y guardar
+    # 2) Estandarizar y guardar
     try:
         idx  = _siguiente_indice()
         dest = DESTINO_CLASE / f'{CLASE}_{idx:06d}.jpg'
@@ -378,14 +349,10 @@ class FuenteZip:
         self.guardadas   = 0
         self.agotada     = False
 
-    def reabrir(self):
-        """Reactiva la fuente para un nuevo pase (umbral relajado)."""
-        self.agotada = False
-
-    def extraer(self, indice, pbar):
+    def extraer(self, pbar):
         nombres = self._nombres[:]
         random.shuffle(nombres)
-        nuevas = descartadas = 0
+        nuevas = fallidas = 0
         try:
             with zipfile.ZipFile(self.zip_path) as zf:
                 for nombre in nombres:
@@ -393,21 +360,21 @@ class FuenteZip:
                         break
                     try:
                         with zf.open(nombre) as f:
-                            img = leer_bytes(f.read())
+                            img = leer_bytes(f.read(), nombre)
                         if img is None:
+                            fallidas += 1
                             continue
-                        if procesar_imagen(img, indice, pbar):
+                        if procesar_imagen(img, pbar):
                             nuevas += 1
                             self.guardadas += 1
-                        else:
-                            descartadas += 1
                     except Exception:
+                        fallidas += 1
                         continue
                 else:
                     self.agotada = True   # recorrió todo sin llenar la cuota
         except Exception as e:
             print(f'  ⚠️ {self.nombre}: {e}', flush=True)
-        return nuevas, descartadas
+        return nuevas, fallidas
 
 
 class FuenteRar:
@@ -424,12 +391,6 @@ class FuenteRar:
         self.agotada     = False
         self._nombres    = None
         self._pendientes = None   # nombres aún no intentados (persiste entre rondas)
-
-    def reabrir(self):
-        """Reactiva la fuente: repuebla pendientes con TODA la lista, así
-        reintenta las que antes se descartaron (ahora con umbral mayor)."""
-        self.agotada     = False
-        self._pendientes = None
 
     def _asegurar_en_disco(self):
         if self.rar_path and self.rar_path.exists():
@@ -461,15 +422,15 @@ class FuenteRar:
         self.disponibles = len(self.listar())
         return self.disponibles
 
-    def extraer(self, indice, pbar):
+    def extraer(self, pbar):
         if self._pendientes is None:
             self._pendientes = self.listar()[:]
             random.shuffle(self._pendientes)
 
-        nuevas = descartadas = 0
+        nuevas = fallidas = 0
         tmp = TMP_EXTRACT / f'batch_{self.nombre}_{threading.get_ident()}'
 
-        # Lotes: si el filtro descarta muchas, pide otro lote
+        # Lotes: pide otro lote mientras queden pendientes y falte cuota
         while self.guardadas < self.cuota and self._pendientes:
             faltan = self.cuota - self.guardadas
             lote, self._pendientes = (self._pendientes[:faltan * LOTE_MULT],
@@ -492,17 +453,18 @@ class FuenteRar:
                     break
                 img = leer_archivo(ruta)
                 if img is None:
+                    fallidas += 1
                     continue
-                if procesar_imagen(img, indice, pbar):
+                if procesar_imagen(img, pbar):
                     nuevas += 1
                     self.guardadas += 1
                 else:
-                    descartadas += 1
+                    fallidas += 1
             shutil.rmtree(tmp, ignore_errors=True)
 
         if not self._pendientes:
             self.agotada = True
-        return nuevas, descartadas
+        return nuevas, fallidas
 
 
 class FuenteCarpeta:
@@ -522,33 +484,31 @@ class FuenteCarpeta:
         self.guardadas   = 0
         self.agotada     = False
 
-    def reabrir(self):
-        self.agotada = False
-
     def listar(self):
         return self._rutas
 
     def contar(self):
         return self.disponibles
 
-    def extraer(self, indice, pbar):
+    def extraer(self, pbar):
         rutas = self._rutas[:]
         random.shuffle(rutas)
-        nuevas = descartadas = 0
+        nuevas = fallidas = 0
         for ruta in rutas:
             if self.guardadas >= self.cuota:
                 break
             img = leer_archivo(ruta)
             if img is None:
+                fallidas += 1
                 continue
-            if procesar_imagen(img, indice, pbar):
+            if procesar_imagen(img, pbar):
                 nuevas += 1
                 self.guardadas += 1
             else:
-                descartadas += 1
+                fallidas += 1
         else:
             self.agotada = True
-        return nuevas, descartadas
+        return nuevas, fallidas
 
 
 def descubrir_fuentes(ruta_local):
@@ -741,8 +701,8 @@ def seleccionar_archivos():
 # PIPELINE (rondas paralelas con redistribución de déficit)
 # =============================================================================
 
-def correr_rondas(fuentes, indice, pbar, checkpoint, estado_global):
-    """Ejecuta hasta MAX_RONDAS rondas paralelas con el umbral actual.
+def correr_rondas(fuentes, pbar, checkpoint, estado_global):
+    """Ejecuta hasta MAX_RONDAS rondas paralelas.
     Para en cuanto se llena el cupo global o no quedan fuentes."""
     ronda = 0
     while ronda < MAX_RONDAS:
@@ -763,16 +723,16 @@ def correr_rondas(fuentes, indice, pbar, checkpoint, estado_global):
               f'{len(activas)} fuentes activas')
 
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-            futs = {ex.submit(f.extraer, indice, pbar): f for f in activas}
+            futs = {ex.submit(f.extraer, pbar): f for f in activas}
             for fut in as_completed(futs):
                 f = futs[fut]
                 try:
-                    nuevas, desc = fut.result()
-                    estado_global['descartadas'] += desc
+                    nuevas, fallidas = fut.result()
+                    estado_global['fallidas'] += fallidas
                     checkpoint[f.nombre] = f.guardadas
                     guardar_checkpoint(checkpoint)
                     print(f'   ✅ {f.nombre}: +{nuevas:,} '
-                          f'({desc:,} descartadas por similitud)', flush=True)
+                          f'({fallidas:,} fallidas)', flush=True)
                 except Exception as e:
                     print(f'   ❌ {f.nombre}: {e}', flush=True)
 
@@ -863,17 +823,8 @@ def main():
                              '(incluye las que ya existen). Default: 500')
     parser.add_argument('--inventario', action='store_true',
                         help='Solo lista fuentes y cuenta imágenes, sin extraer')
-    parser.add_argument('--umbral', type=int, default=UMBRAL_SIMILITUD,
-                        help='Distancia Hamming máxima del dHash para descartar '
-                             f'por similitud. Default: {UMBRAL_SIMILITUD}. '
-                             'Más alto = acepta más parecidas')
     parser.add_argument('--workers', type=int, default=MAX_WORKERS,
                         help=f'Hilos de extracción en paralelo. Default: {MAX_WORKERS}')
-    parser.add_argument('--filtro-existentes', action='store_true',
-                        help='Indexa las imágenes ya guardadas en destino para '
-                             'que las nuevas no las repitan. Por defecto NO se '
-                             'indexa (arranque directo, las nuevas solo se '
-                             'comparan entre sí)')
     parser.add_argument('--no-exacto', action='store_true',
                         help='No fuerza la meta exacta (sin umbral progresivo '
                              'ni augmentación de relleno)')
@@ -904,9 +855,9 @@ def main():
     print('  3. Elige los archivos a procesar por NÚMERO, separados por coma.')
     print('  4. Las imágenes se guardan como <clase>_NNNNNN.jpg (224x224 RGB).')
     backend = 'cv2 (rápido)' if USAR_CV2 else 'PIL (instala opencv-python-headless para 3-5x)'
-    print(f'  • Meta (--max): {MAX_IMAGENES:,}   ·   Filtro (--umbral): {args.umbral}'
-          f'   ·   Workers: {MAX_WORKERS}')
+    print(f'  • Meta (--max): {MAX_IMAGENES:,}   ·   Workers: {MAX_WORKERS}')
     print(f'  • Backend de imagen: {backend}')
+    print(f'  • GIF y MP4: se extrae un frame aleatorio y se guarda como JPG')
     print('─' * 62)
 
     # ── PASO 1: clase destino ────────────────────────────────
@@ -983,42 +934,22 @@ def main():
         print('✅ Ya hay suficientes imágenes en destino. Nada que hacer.')
         return
 
-    # ── Filtro de similitud ──────────────────────────────────
-    indice = IndiceSimilitud(umbral=args.umbral)
-    print(f'\nFiltro de variedad: dHash, umbral Hamming ≤ {args.umbral}')
-    if args.filtro_existentes:
-        indexar_existentes(indice)
-    else:
-        print('Sin indexar existentes (directo). Las nuevas solo se comparan entre sí.')
+    # ── Sin filtro de similitud (v4.0.0) ─────────────────────
+    print('\nSin filtro de similitud: se acepta toda imagen válida hasta la meta.')
 
     # ── FASE B: extracción paralela por rondas ───────────────
     print('\n' + '═' * 55)
     print('FASE B — EXTRACCIÓN PARALELA POR RONDAS')
     print('═' * 55)
     t0_total = time.time()
-    estado_global = {'descartadas': 0}
+    estado_global = {'fallidas': 0}
     pbar = tqdm(total=MAX_IMAGENES, initial=_total_guardadas[0],
                 desc='Imágenes guardadas', unit='img', dynamic_ncols=True)
 
-    # PASO 1: pase normal con umbral base
-    correr_rondas(fuentes, indice, pbar, checkpoint, estado_global)
+    # PASO 1: pase normal (se acepta toda imagen válida)
+    correr_rondas(fuentes, pbar, checkpoint, estado_global)
 
-    # PASO 2: relajar umbral progresivamente si falta
-    if GARANTIZAR_EXACTO and _cupo_restante() > 0:
-        umbral_actual = args.umbral
-        while _cupo_restante() > 0 and umbral_actual < UMBRAL_MAX:
-            umbral_actual = min(umbral_actual + UMBRAL_PASO, UMBRAL_MAX)
-            print('\n' + '·' * 55)
-            print(f'⚙️  Faltan {_cupo_restante():,} imgs — relajando umbral '
-                  f'dHash a {umbral_actual} y reintentando')
-            print('·' * 55)
-            indice.set_umbral(umbral_actual)
-            for f in fuentes:
-                if f.guardadas < f.disponibles:
-                    f.reabrir()
-            correr_rondas(fuentes, indice, pbar, checkpoint, estado_global)
-
-    # PASO 3: augmentación de relleno como último recurso
+    # PASO 2: augmentación de relleno como último recurso
     # Solo si: fuentes agotadas Y ya se superó el mínimo de imágenes reales
     n_augmentadas = 0
     ya_guardadas  = _total_guardadas[0]
@@ -1055,7 +986,7 @@ def main():
     print(f'  Imágenes en disco       : {total_final:,}')
     print(f'    · reales (fuentes)    : {reales:,}')
     print(f'    · augmentadas         : {n_augmentadas:,}')
-    print(f'  Descartadas (similitud) : {estado_global["descartadas"]:,}')
+    print(f'  Archivos fallidos       : {estado_global["fallidas"]:,}')
     print(f'  Verificación            : {len(muestra_n)-malas}/{len(muestra_n)} '
           f'válidas (224x224 RGB)')
     print(f'  Meta                    : {MAX_IMAGENES:,}')
