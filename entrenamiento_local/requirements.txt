@@ -1,0 +1,11 @@
+# Instala PyTorch con soporte CUDA ANTES que el resto (elige tu versión CUDA):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+#
+# Luego el resto:
+torch>=2.0
+torchvision>=0.15
+numpy>=1.23
+scikit-learn>=1.1
+matplotlib>=3.6
+pillow>=9.0
+tqdm>=4.64
