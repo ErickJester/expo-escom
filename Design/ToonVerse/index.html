@@ -52,11 +52,34 @@
   @keyframes spinner-rotate {
     to { transform: rotate(360deg); }
   }
+  @keyframes pulse-rt {
+    0%,100% { box-shadow: 0 0 16px #22C55E33; }
+    50%      { box-shadow: 0 0 32px #22C55E99, 0 0 60px #22C55E22; }
+  }
 
-  /* Botones: estados hover/active (antes style-hover / style-active) */
-  #btn-scan { transition: border-color 0.2s, background 0.2s, transform 0.1s; }
-  #btn-scan:hover  { background: linear-gradient(135deg,#00f5ff28,#a855f728) !important; border-color: #00f5ffbb !important; }
-  #btn-scan:active { transform: scale(0.97); }
+  /* Botones de modo (Tiempo Real / Escanear) */
+  .mode-btn {
+    padding: 12px 30px; border-radius: 50px;
+    font-family: 'Orbitron',sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 3px;
+    cursor: pointer; outline: none;
+    background: #ffffff07; color: #ffffff55; border: 1.5px solid #ffffff18;
+    transition: color 0.25s, background 0.25s, border-color 0.25s, box-shadow 0.25s, transform 0.1s;
+  }
+  .mode-btn:hover:not(:disabled)  { color: #ffffffcc; border-color: #ffffff33; }
+  .mode-btn:active:not(:disabled) { transform: scale(0.97); }
+  .mode-btn:disabled { cursor: not-allowed; opacity: 0.45; }
+  .mode-btn.active {
+    background: linear-gradient(135deg,#00f5ff22,#a855f722);
+    border-color: #00f5ff99; color: #00f5ff;
+    box-shadow: 0 0 18px #00f5ff44;
+  }
+  .mode-btn.rt.active {
+    background: linear-gradient(135deg,#22C55E20,#00f5ff20);
+    border-color: #22C55E99; color: #22ffa0;
+    animation: pulse-rt 1.6s ease-in-out infinite;
+  }
+
+  /* Botón "Escanear de nuevo" */
   #btn-reset { transition: border-color 0.2s, background 0.2s, transform 0.1s; }
   #btn-reset:hover  { background: linear-gradient(135deg,#a855f728,#00f5ff28) !important; border-color: #a855f799 !important; }
   #btn-reset:active { transform: scale(0.97); }
@@ -292,7 +315,7 @@
 
     <!-- Title -->
     <div style="text-align:center;flex-shrink:0;">
-      <div style="font-size:7.5px;letter-spacing:5px;color:#00f5ff33;margin-bottom:3px;font-family:'Exo 2',sans-serif;">· SISTEMA DE CLASIFICACIÓN NEURAL ·</div>
+      <div style="font-size:7.5px;letter-spacing:5px;color:#00f5ff33;margin-bottom:3px;font-family:'Exo 2',sans-serif;">· SISTEMA DE CLASIFICACIÓN NEURAL · UI v2.0 ·</div>
       <div style="line-height:1;">
         <span style="font-size:clamp(14px,1.7vw,24px);font-weight:900;letter-spacing:4px;color:#00f5ff;">TOON</span><span style="font-size:clamp(14px,1.7vw,24px);font-weight:900;letter-spacing:4px;color:#a855f7;">VERSE</span>
       </div>
@@ -303,6 +326,10 @@
 
       <video id="video" autoplay playsinline muted
              style="width:100%;display:block;aspect-ratio:4/3;object-fit:cover;border-radius:14px;background:#080812;"></video>
+
+      <!-- Frame congelado (foto): se muestra encima del video en scanning/frozen -->
+      <img id="frozen-img" alt="captura"
+           style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:14px;z-index:5;">
 
       <!-- Camera error -->
       <div id="camera-error" style="display:none;position:absolute;inset:0;border-radius:14px;background:#080812;flex-direction:column;align-items:center;justify-content:center;gap:10px;">
@@ -321,13 +348,18 @@
 
       <!-- HUD labels (always) -->
       <div style="position:absolute;top:12px;left:36px;font-size:7px;letter-spacing:2px;color:#ff444477;z-index:9;font-family:'Exo 2',sans-serif;pointer-events:none;animation:tick-blink 2s ease-in-out infinite;">◉ REC</div>
-      <div style="position:absolute;top:12px;right:36px;font-size:7px;letter-spacing:2px;color:#00f5ff44;z-index:9;font-family:'Exo 2',sans-serif;pointer-events:none;">LIVE</div>
+      <div id="hud-mode" style="position:absolute;top:12px;right:36px;font-size:7px;letter-spacing:2px;color:#00f5ff44;z-index:9;font-family:'Exo 2',sans-serif;pointer-events:none;">READY</div>
       <div style="position:absolute;bottom:8px;left:36px;font-size:6px;letter-spacing:1px;color:#ffffff22;z-index:9;font-family:'Exo 2',sans-serif;pointer-events:none;">MobileNetV2 · ESCOM</div>
 
       <!-- IDLE: glow border + prompt -->
       <div id="idle-border" style="position:absolute;inset:0;border-radius:14px;border:2px solid #00f5ff44;animation:glow-pulse 3s ease-in-out infinite;pointer-events:none;z-index:7;"></div>
       <div id="idle-prompt" style="position:absolute;bottom:20px;left:0;right:0;text-align:center;z-index:10;pointer-events:none;">
-        <span style="font-size:9px;letter-spacing:3px;color:#ffffff66;animation:tick-blink 2.5s ease-in-out infinite;font-family:'Exo 2',sans-serif;">Muestra algo al scanner…</span>
+        <span style="font-size:9px;letter-spacing:3px;color:#ffffff66;animation:tick-blink 2.5s ease-in-out infinite;font-family:'Exo 2',sans-serif;">Apunta y presiona ESCANEAR…</span>
+      </div>
+
+      <!-- TIEMPO REAL: prompt -->
+      <div id="rt-prompt" style="display:none;position:absolute;bottom:20px;left:0;right:0;text-align:center;z-index:10;pointer-events:none;">
+        <span style="font-size:9px;letter-spacing:3px;color:#22ffa0aa;animation:tick-blink 1.2s ease-in-out infinite;font-family:'Exo 2',sans-serif;">● CLASIFICANDO EN TIEMPO REAL</span>
       </div>
 
       <!-- SCANNING: animated border + scan line + spinner -->
@@ -349,17 +381,17 @@
     <!-- end camera wrapper -->
 
     <!-- Action buttons -->
-    <div style="flex-shrink:0;">
-      <button id="btn-scan" onclick="onScan()"
-              style="padding:13px 46px;background:linear-gradient(135deg,#00f5ff14,#a855f714);border:1.5px solid #00f5ff66;border-radius:50px;color:#00f5ff;font-family:'Orbitron',sans-serif;font-size:12px;font-weight:700;letter-spacing:5px;cursor:pointer;animation:pulse-btn 2s ease-in-out infinite;outline:none;">
-        ◉ SCAN
-      </button>
+    <div style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:10px;">
+      <div style="display:flex;gap:10px;">
+        <button id="btn-realtime" class="mode-btn rt" onclick="onRealtime()">⊙ TIEMPO REAL</button>
+        <button id="btn-scan" class="mode-btn" onclick="onScan()">◉ ESCANEAR</button>
+      </div>
       <button id="btn-scanning" disabled
-              style="display:none;padding:13px 46px;background:#ffffff07;border:1.5px solid #ffffff18;border-radius:50px;color:#ffffff33;font-family:'Orbitron',sans-serif;font-size:12px;letter-spacing:4px;cursor:not-allowed;outline:none;">
+              style="display:none;padding:8px 30px;background:#ffffff07;border:1.5px solid #ffffff18;border-radius:50px;color:#ffffff44;font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:4px;cursor:not-allowed;outline:none;">
         ANALIZANDO…
       </button>
       <button id="btn-reset" onclick="onReset()"
-              style="display:none;padding:11px 38px;background:linear-gradient(135deg,#a855f714,#00f5ff14);border:1.5px solid #a855f755;border-radius:50px;color:#a855f7;font-family:'Orbitron',sans-serif;font-size:10px;font-weight:600;letter-spacing:3px;cursor:pointer;outline:none;">
+              style="display:none;padding:10px 34px;background:linear-gradient(135deg,#a855f714,#00f5ff14);border:1.5px solid #a855f755;border-radius:50px;color:#a855f7;font-family:'Orbitron',sans-serif;font-size:10px;font-weight:600;letter-spacing:3px;cursor:pointer;outline:none;">
         ↺ ESCANEAR DE NUEVO
       </button>
     </div>
@@ -368,7 +400,7 @@
     <div id="result-card" style="display:none;width:100%;max-width:640px;flex-shrink:0;animation:slide-up 0.5s cubic-bezier(0.22,1,0.36,1);">
       <div style="background:linear-gradient(135deg,#0f0a1e,#1a0d2e);border:1px solid #ffffff18;border-radius:14px;padding:18px 20px;display:flex;flex-direction:column;gap:10px;">
         <div style="display:flex;align-items:center;justify-content:space-between;">
-          <div style="font-size:7px;letter-spacing:4px;color:#00f5ff44;font-family:'Exo 2',sans-serif;">RESULTADO · DETECTADO</div>
+          <div id="res-status" style="font-size:7px;letter-spacing:4px;color:#00f5ff44;font-family:'Exo 2',sans-serif;">RESULTADO · DETECTADO</div>
           <div style="width:7px;height:7px;border-radius:50%;background:#00f5ff;box-shadow:0 0 10px #00f5ff;animation:tick-blink 1s ease-in-out infinite;"></div>
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
@@ -420,9 +452,27 @@
 <script>
 // ============================================================
 // ToonVerse — lógica de la página (vanilla JS, sin frameworks)
-// La inferencia es SIMULADA. Para conectar el modelo real
-// (MobileNetV2 de predict.py) ver scanReal() más abajo.
+// La inferencia usa el backend Flask (/predict) si está online;
+// si no, cae a simulación.
+//
+// VERSION: 'UI v2.0'
+// Changelog:
+//   v2.0 — Dos modos: TIEMPO REAL (clasificación continua del
+//          video en vivo) y ESCANEAR (captura congelada tipo foto
+//          + análisis del frame). Botones de modo, frame congelado
+//          y bucle de inferencia en vivo.
+//   v1.x — Modo único: botón SCAN sobre el video en vivo.
 // ============================================================
+const PAGE_VERSION = 'UI v2.0';
+
+// Estados (appState):
+//   'armed'    — modo Escanear, cámara en vivo, esperando captura
+//   'realtime' — modo Tiempo Real, clasificación continua del video
+//   'scanning' — análisis del frame capturado (transitorio)
+//   'frozen'   — frame congelado + resultado mostrado
+const RT_INTERVAL_MS = 900;   // periodo del bucle de Tiempo Real
+let rtTimer = null;           // handle del setInterval
+let rtBusy  = false;          // evita peticiones solapadas al backend
 
 const CLASSES = [
   { id: 'pokemon',          label: 'Pokémon',         color: '#FFD700' },
@@ -443,7 +493,7 @@ const CLASSES = [
 ];
 
 const state = {
-  appState: 'idle',                                  // idle | scanning | result
+  appState: 'armed',                                 // armed | realtime | scanning | frozen
   probabilities: CLASSES.map(c => ({ ...c, value: 0 })),
   topResult: null,
 };
@@ -506,48 +556,110 @@ async function predictReal(frame) {
   return CLASSES.map(c => ({ ...c, value: data.probs[c.id] ?? 0 }));
 }
 
-async function onScan() {
-  if (state.appState !== 'idle') return;
+// Devuelve las probabilidades del frame: backend real si está online, si no simula
+async function classifyFrame(frame) {
+  if (backendOnline && frame) {
+    try { return await predictReal(frame); }
+    catch (e) { console.warn('Backend falló, usando simulación:', e); }
+  }
+  return simulate();
+}
+
+function clearProbs() {
+  state.topResult = null;
+  state.probabilities = CLASSES.map(c => ({ ...c, value: 0 }));
+}
+
+// ── Modo TIEMPO REAL: clasificación continua del video en vivo ──
+function onRealtime() {
+  if (state.appState === 'scanning' || state.appState === 'realtime') return;
+  state.appState = 'realtime';        // sale de congelado/armado y arranca el bucle
+  clearProbs();
+  render();
+  startRealtimeLoop();
+}
+
+function startRealtimeLoop() {
+  stopRealtimeLoop();
+  realtimeTick();                     // primer disparo inmediato
+  rtTimer = setInterval(realtimeTick, RT_INTERVAL_MS);
+}
+
+function stopRealtimeLoop() {
+  if (rtTimer) { clearInterval(rtTimer); rtTimer = null; }
+}
+
+async function realtimeTick() {
+  if (state.appState !== 'realtime' || rtBusy) return;
+  rtBusy = true;
+  try {
+    const probs = await classifyFrame(captureFrame());
+    if (state.appState !== 'realtime') return;   // el modo pudo cambiar durante el await
+    state.probabilities = probs;
+    state.topResult = [...probs].sort((a, b) => b.value - a.value)[0];
+    render();                                    // actualización en vivo (sin flash ni confeti)
+  } finally {
+    rtBusy = false;
+  }
+}
+
+// ── Botón ESCANEAR ──────────────────────────────────────────
+// realtime → armado (1ª pulsación) · armado → captura (2ª pulsación) · frozen → re-armar
+function onScan() {
+  switch (state.appState) {
+    case 'scanning': return;
+    case 'realtime':                  // 1ª pulsación: cambia de Tiempo Real a modo Escanear
+      stopRealtimeLoop();
+      state.appState = 'armed';
+      clearProbs();
+      render();
+      return;
+    case 'frozen':                    // ya hay foto: vuelve a modo Escanear
+      onReset();
+      return;
+    default:                          // 'armed' → 2ª pulsación: congela y analiza
+      doCapture();
+  }
+}
+
+// Congela el frame actual (como tomar una foto) y lo clasifica
+async function doCapture() {
+  const frame = captureFrame();
+  if (frame) $('frozen-img').src = frame;    // muestra la captura congelada
   state.appState = 'scanning';
   render();
 
   const t0 = performance.now();
-  let probs = null;
+  const probs = await classifyFrame(frame);
 
-  // 1) intenta modelo real; 2) si falla o no hay backend → simulación
-  const frame = captureFrame();
-  if (backendOnline && frame) {
-    try { probs = await predictReal(frame); }
-    catch (e) { console.warn('Backend falló, usando simulación:', e); probs = null; }
-  }
-  if (!probs) probs = simulate();
-
-  // Tiempo mínimo de escaneo para que se vea la animación (la inferencia real es rápida)
+  // Tiempo mínimo para que se vea la animación (la inferencia real es rápida)
   const MIN_MS = 1100;
   const elapsed = performance.now() - t0;
   if (elapsed < MIN_MS) await new Promise(r => setTimeout(r, MIN_MS - elapsed));
 
-  const top = [...probs].sort((a, b) => b.value - a.value)[0];
   state.probabilities = probs;
-  state.topResult = top;
-  state.appState = 'result';
+  state.topResult = [...probs].sort((a, b) => b.value - a.value)[0];
+  state.appState = 'frozen';
   render();
 
-  // Flash
+  triggerFlash();
+  if (state.topResult.value > 0.8) launchConfetti();
+}
+
+function triggerFlash() {
   const flash = $('flash');
   flash.style.display = 'block';
   flash.style.animation = 'none';
-  void flash.offsetWidth;                            // reinicia la animación
+  void flash.offsetWidth;                    // reinicia la animación
   flash.style.animation = 'flash-overlay 0.7s ease-out forwards';
   setTimeout(() => { flash.style.display = 'none'; }, 700);
-
-  if (top.value > 0.8) launchConfetti();
 }
 
+// Descongela y vuelve al modo Escanear (cámara en vivo, esperando)
 function onReset() {
-  state.appState = 'idle';
-  state.topResult = null;
-  state.probabilities = CLASSES.map(c => ({ ...c, value: 0 }));
+  stopRealtimeLoop();
+  state.appState = 'armed';
+  clearProbs();
   render();
 }
 
@@ -591,20 +703,31 @@ function launchConfetti() {
 
 // ── Render ──────────────────────────────────────────────────
 function render() {
-  const isIdle     = state.appState === 'idle';
+  const isArmed    = state.appState === 'armed';
+  const isRealtime = state.appState === 'realtime';
   const isScanning = state.appState === 'scanning';
-  const isResult   = state.appState === 'result';
+  const isFrozen   = state.appState === 'frozen';
 
   // Overlays de la cámara
-  $('idle-border').style.display   = isIdle ? 'block' : 'none';
-  $('idle-prompt').style.display   = isIdle ? 'block' : 'none';
+  $('idle-border').style.display   = isArmed ? 'block' : 'none';
+  $('idle-prompt').style.display   = isArmed ? 'block' : 'none';
+  $('rt-prompt').style.display     = isRealtime ? 'block' : 'none';
   $('scan-overlay').style.display  = isScanning ? 'block' : 'none';
-  $('result-border').style.display = isResult ? 'block' : 'none';
+  $('result-border').style.display = (isRealtime || isFrozen) ? 'block' : 'none';
+  const hasFrame = !!$('frozen-img').getAttribute('src');
+  $('frozen-img').style.display    = ((isScanning || isFrozen) && hasFrame) ? 'block' : 'none';
 
-  // Botones
-  $('btn-scan').style.display     = isIdle ? 'inline-block' : 'none';
+  // HUD (esquina superior derecha del visor)
+  $('hud-mode').textContent =
+    isRealtime ? '● LIVE' : isScanning ? 'SCAN…' : isFrozen ? '❚❚ FOTO' : 'READY';
+
+  // Botones de modo (toggle) + píldoras contextuales
+  $('btn-realtime').classList.toggle('active', isRealtime);
+  $('btn-scan').classList.toggle('active', isArmed || isScanning || isFrozen);
+  $('btn-realtime').disabled = isScanning;
+  $('btn-scan').disabled     = isScanning;
   $('btn-scanning').style.display = isScanning ? 'inline-block' : 'none';
-  $('btn-reset').style.display    = isResult ? 'inline-block' : 'none';
+  $('btn-reset').style.display    = isFrozen ? 'inline-block' : 'none';
 
   // Panel derecho: barras ordenadas por probabilidad
   const display = state.probabilities.map(p => {
@@ -623,9 +746,11 @@ function render() {
       </div>
     </div>`).join('');
 
-  // Tarjeta de resultado
-  $('result-card').style.display = isResult ? 'block' : 'none';
-  if (isResult && state.topResult) {
+  // Tarjeta de resultado (visible en frozen y en tiempo real con resultado)
+  const showCard = isFrozen || (isRealtime && state.topResult);
+  $('result-card').style.display = showCard ? 'block' : 'none';
+  if (showCard && state.topResult) {
+    $('res-status').textContent = isRealtime ? 'EN VIVO · DETECTANDO' : 'RESULTADO · DETECTADO';
     const t   = state.topResult;
     const tc  = t.color;
     const pct = Math.round(t.value * 100);
