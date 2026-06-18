@@ -4,7 +4,7 @@
 # Sirve la página (ToonVerse/index.html) Y el endpoint /predict
 # en el mismo puerto → sin CORS. La cámara del navegador manda
 # un frame y recibe las probabilidades reales del modelo
-# cartoon_v3_local.pt (MobileNetV2, 17 clases single-label).
+# cartoon_v3.pt (MobileNetV2, 17 clases single-label).
 #
 # Uso:
 #   py server.py
@@ -33,7 +33,7 @@ HERE         = os.path.dirname(os.path.abspath(__file__))          # ...\Design
 PROJECT_ROOT = os.path.dirname(HERE)                               # ...\expo-escom
 STATIC_DIR   = os.path.join(HERE, "ToonVerse")
 TRAIN_DIR    = os.path.join(PROJECT_ROOT, "entrenamiento_local")
-MODEL_PATH   = os.path.join(TRAIN_DIR, "models", "cartoon_v3_local.pt")
+MODEL_PATH   = os.path.join(TRAIN_DIR, "models", "cartoon_v3.pt")
 
 # Reutiliza la arquitectura REAL del entrenamiento (única fuente de verdad)
 sys.path.insert(0, TRAIN_DIR)
