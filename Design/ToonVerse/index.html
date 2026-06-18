@@ -56,6 +56,108 @@
     0%,100% { box-shadow: 0 0 16px #22C55E33; }
     50%      { box-shadow: 0 0 32px #22C55E99, 0 0 60px #22C55E22; }
   }
+  @keyframes oracle-modal-in {
+    from { opacity:0; transform:translateY(32px) scale(0.96); }
+    to   { opacity:1; transform:translateY(0)    scale(1);    }
+  }
+  @keyframes oracle-orb-spin {
+    from { transform:rotate(0deg); }
+    to   { transform:rotate(360deg); }
+  }
+  @keyframes oracle-step-in {
+    from { opacity:0; transform:translateX(-14px); }
+    to   { opacity:1; transform:translateX(0); }
+  }
+  @keyframes oracle-glow-ring {
+    0%,100% { box-shadow:0 0 20px #a855f744,0 0 60px #a855f718,inset 0 0 30px #7c3aed0a; }
+    50%      { box-shadow:0 0 40px #a855f788,0 0 100px #a855f733,inset 0 0 50px #7c3aed14; }
+  }
+
+  /* Oracle button */
+  #oracle-btn {
+    cursor:pointer;
+    transition:transform 0.2s, filter 0.2s;
+    border-radius:50%;
+  }
+  #oracle-btn:hover { transform:scale(1.08); filter:drop-shadow(0 0 18px #a855f7cc); }
+  #oracle-btn:active { transform:scale(0.96); }
+
+  /* Oracle modal overlay */
+  #oracle-overlay {
+    display:none; position:fixed; inset:0; z-index:9000;
+    background:#07060fcc; backdrop-filter:blur(10px);
+    align-items:center; justify-content:center;
+  }
+  #oracle-overlay.open { display:flex; }
+
+  /* Modal box */
+  #oracle-modal {
+    position:relative; width:min(520px,92vw); max-height:88vh;
+    background:linear-gradient(155deg,#0f0820 0%,#0d0d1a 50%,#0a1a1f 100%);
+    border:1px solid #a855f733; border-radius:20px;
+    overflow:hidden; overflow-y:auto;
+    animation:oracle-modal-in 0.38s cubic-bezier(0.22,1,0.36,1) both;
+    animation-delay:0.05s;
+    scrollbar-width:thin; scrollbar-color:#a855f733 transparent;
+  }
+  #oracle-modal::before {
+    content:''; position:absolute; inset:-1px; border-radius:20px;
+    background:linear-gradient(135deg,#a855f722,#00f5ff11,#7c3aed22);
+    pointer-events:none; z-index:0;
+  }
+
+  /* Animated glow ring behind modal */
+  #oracle-glow-bg {
+    position:absolute; width:min(560px,96vw); aspect-ratio:1;
+    border-radius:50%; background:radial-gradient(circle,#7c3aed18 0%,transparent 70%);
+    animation:oracle-glow-ring 3s ease-in-out infinite;
+    pointer-events:none;
+  }
+
+  /* Decorative spinning ring inside modal */
+  .oracle-ring {
+    width:90px; height:90px; border-radius:50%; position:relative; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .oracle-ring::before {
+    content:''; position:absolute; inset:0; border-radius:50%;
+    border:1.5px solid transparent;
+    border-top-color:#a855f7; border-right-color:#00f5ff44;
+    animation:oracle-orb-spin 3s linear infinite;
+  }
+  .oracle-ring::after {
+    content:''; position:absolute; inset:8px; border-radius:50%;
+    border:1px solid transparent;
+    border-bottom-color:#7c3aed88; border-left-color:#a855f744;
+    animation:oracle-orb-spin 2s linear infinite reverse;
+  }
+
+  /* Steps */
+  .oracle-step {
+    display:flex; gap:14px; align-items:flex-start; padding:14px 20px;
+    border-radius:12px; background:#ffffff04; border:1px solid #ffffff07;
+    position:relative; z-index:1;
+    opacity:0; animation:oracle-step-in 0.4s ease both;
+  }
+  .oracle-step:nth-child(1) { animation-delay:0.15s; }
+  .oracle-step:nth-child(2) { animation-delay:0.25s; }
+  .oracle-step:nth-child(3) { animation-delay:0.35s; }
+  .oracle-step:nth-child(4) { animation-delay:0.45s; }
+
+  .oracle-step-num {
+    width:28px; height:28px; border-radius:50%; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Orbitron',sans-serif; font-size:11px; font-weight:900;
+  }
+  .oracle-close {
+    position:sticky; top:14px; float:right; z-index:10; margin:14px 14px 0 0;
+    width:32px; height:32px; border-radius:50%; border:1px solid #ffffff18;
+    background:#ffffff08; color:#ffffff66; font-size:14px;
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+    transition:background 0.2s, color 0.2s, border-color 0.2s;
+    font-family:sans-serif; flex-shrink:0;
+  }
+  .oracle-close:hover { background:#ff444422; border-color:#ff666644; color:#ff9999; }
 
   /* Botones de modo (Tiempo Real / Escanear) */
   .mode-btn {
@@ -303,7 +405,7 @@
     </div>
 
     <!-- Oracle -->
-    <div style="flex-shrink:0;padding:10px 0 14px;border-top:1px solid #7c3aed15;display:flex;flex-direction:column;align-items:center;gap:5px;animation:float-oracle 4s ease-in-out infinite;">
+    <div id="oracle-btn" style="flex-shrink:0;padding:10px 0 14px;border-top:1px solid #7c3aed15;display:flex;flex-direction:column;align-items:center;gap:5px;animation:float-oracle 4s ease-in-out infinite;" title="¿Cómo usar ToonVerse?">
       <svg width="64" height="72" viewBox="0 0 64 72">
         <circle cx="32" cy="34" r="26" fill="none" stroke="#7c3aed22" stroke-width="1"/>
         <circle cx="32" cy="34" r="20" fill="#7c3aed0d" stroke="#7c3aed66" stroke-width="1.5"/>
@@ -748,8 +850,8 @@ function render() {
   $('prob-list').innerHTML = display.map(p => `
     <div style="margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-        <span style="font-size:7.5px;letter-spacing:1px;color:#ffffff44;font-family:'Exo 2',sans-serif;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%;">${p.label}</span>
-        <span style="font-size:7.5px;font-weight:600;letter-spacing:1px;color:${p.color};font-family:'Exo 2',sans-serif;">${p.pct}%</span>
+        <span style="font-size:11px;letter-spacing:1px;color:#ffffff44;font-family:'Exo 2',sans-serif;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%;">${p.label}</span>
+        <span style="font-size:11px;font-weight:600;letter-spacing:1px;color:${p.color};font-family:'Exo 2',sans-serif;">${p.pct}%</span>
       </div>
       <div style="height:4px;background:#ffffff09;border-radius:2px;overflow:hidden;">
         <div style="height:100%;width:${p.pct}%;background:${p.color};border-radius:2px;box-shadow:0 0 6px ${p.color}99;transition:width 0.9s cubic-bezier(0.22,1,0.36,1);"></div>
@@ -809,6 +911,144 @@ async function checkBackend() {
 render();
 startCamera();
 checkBackend();
+
+// ── Oracle popup ─────────────────────────────────────────────
+document.getElementById('oracle-btn').addEventListener('click', () => {
+  const ov = document.getElementById('oracle-overlay');
+  ov.classList.add('open');
+  // Re-trigger step animations each time it opens
+  ov.querySelectorAll('.oracle-step').forEach(el => {
+    el.style.animation = 'none';
+    el.offsetHeight;
+    el.style.animation = '';
+  });
+});
+function closeOracle() { document.getElementById('oracle-overlay').classList.remove('open'); }
+document.getElementById('oracle-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('oracle-overlay')) closeOracle();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeOracle(); });
 </script>
+
+<!-- ══════════════ ORACLE POPUP ══════════════ -->
+<div id="oracle-overlay">
+  <div id="oracle-glow-bg"></div>
+  <div id="oracle-modal">
+
+    <!-- Close button -->
+    <button class="oracle-close" onclick="closeOracle()">✕</button>
+
+    <!-- Header -->
+    <div style="position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:10px;padding:28px 24px 20px;text-align:center;">
+      <div class="oracle-ring">
+        <svg width="54" height="54" viewBox="0 0 64 64" style="position:relative;z-index:1;">
+          <circle cx="32" cy="32" r="24" fill="#7c3aed0d" stroke="#a855f744" stroke-width="1.5"/>
+          <text x="32" y="44" text-anchor="middle" font-size="32" font-family="Orbitron,sans-serif" font-weight="900" fill="#a855f7">?</text>
+          <circle cx="10" cy="10" r="2" fill="#7c3aed88"/>
+          <circle cx="54" cy="18" r="1.5" fill="#00f5ff88"/>
+          <circle cx="55" cy="50" r="1" fill="#a855f766"/>
+        </svg>
+      </div>
+      <div>
+        <div style="font-size:7px;letter-spacing:5px;color:#a855f766;font-family:'Exo 2',sans-serif;margin-bottom:5px;">· GUÍA DE USO ·</div>
+        <div style="font-family:'Orbitron',sans-serif;font-weight:900;letter-spacing:4px;font-size:clamp(14px,3vw,20px);">
+          <span style="color:#00f5ff;">TOON</span><span style="color:#a855f7;">VERSE</span>
+        </div>
+        <div style="font-size:9px;letter-spacing:2px;color:#ffffff33;font-family:'Exo 2',sans-serif;margin-top:4px;">CLASIFICADOR NEURAL · 17 CLASES</div>
+      </div>
+      <div style="width:60%;height:1px;background:linear-gradient(90deg,transparent,#a855f744,#00f5ff33,transparent);margin-top:4px;"></div>
+    </div>
+
+    <!-- Steps -->
+    <div style="position:relative;z-index:1;display:flex;flex-direction:column;gap:10px;padding:0 20px 24px;">
+
+      <!-- Step 1 -->
+      <div class="oracle-step">
+        <div class="oracle-step-num" style="background:#00f5ff12;border:1px solid #00f5ff44;color:#00f5ff;">1</div>
+        <div>
+          <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#00f5ff;margin-bottom:5px;">PERMITE EL ACCESO A LA CÁMARA</div>
+          <div style="font-family:'Exo 2',sans-serif;font-size:11.5px;color:#ffffff88;line-height:1.6;">
+            Al abrir la app, tu navegador pedirá permiso para usar la cámara. Acéptalo para habilitar la clasificación en vivo. Sin cámara, ToonVerse no puede analizar imágenes.
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="oracle-step">
+        <div class="oracle-step-num" style="background:#22C55E12;border:1px solid #22C55E44;color:#22ffa0;">2</div>
+        <div>
+          <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#22ffa0;margin-bottom:5px;">MODO · TIEMPO REAL</div>
+          <div style="font-family:'Exo 2',sans-serif;font-size:11.5px;color:#ffffff88;line-height:1.6;">
+            Activa <span style="color:#22ffa0;font-weight:600;">● TIEMPO REAL</span> y apunta la cámara a cualquier imagen, pantalla o ilustración de anime/cartoon. ToonVerse analizará el video continuamente cada ~0.9 s y mostrará las probabilidades en vivo.
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="oracle-step">
+        <div class="oracle-step-num" style="background:#a855f712;border:1px solid #a855f744;color:#a855f7;">3</div>
+        <div>
+          <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#a855f7;margin-bottom:5px;">MODO · ESCANEAR</div>
+          <div style="font-family:'Exo 2',sans-serif;font-size:11.5px;color:#ffffff88;line-height:1.6;">
+            Presiona <span style="color:#a855f7;font-weight:600;">ESCANEAR</span> para capturar un fotograma fijo y analizarlo. El resultado se congela en pantalla con el personaje detectado y su porcentaje de confianza. Usa <span style="color:#ffffff55;">Escanear de nuevo</span> para reiniciar.
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4 -->
+      <div class="oracle-step">
+        <div class="oracle-step-num" style="background:#f59e0b12;border:1px solid #f59e0b44;color:#f59e0b;">4</div>
+        <div>
+          <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#f59e0b;margin-bottom:5px;">PANEL DE ANÁLISIS</div>
+          <div style="font-family:'Exo 2',sans-serif;font-size:11.5px;color:#ffffff88;line-height:1.6;">
+            El panel derecho muestra las <span style="color:#f59e0b;font-weight:600;">17 clases</span> ordenadas por probabilidad con barras de progreso. Las barras se actualizan en tiempo real reflejando la certeza del modelo para cada franquicia.
+          </div>
+        </div>
+      </div>
+
+      <!-- Tip -->
+      <div style="position:relative;z-index:1;display:flex;gap:12px;align-items:flex-start;padding:12px 16px;border-radius:12px;background:linear-gradient(135deg,#a855f70a,#00f5ff08);border:1px solid #a855f722;margin-top:2px;">
+        <div style="font-size:18px;flex-shrink:0;">💡</div>
+        <div>
+          <div style="font-family:'Orbitron',sans-serif;font-size:8px;letter-spacing:2px;color:#a855f799;margin-bottom:4px;">TIP DEL ORÁCULO</div>
+          <div style="font-family:'Exo 2',sans-serif;font-size:11px;color:#ffffff55;line-height:1.6;">
+            Para mejores resultados, usa imágenes con el personaje bien visible, con buena iluminación y sin texto que lo tape. El modelo fue entrenado con fotogramas reales de cada serie.
+          </div>
+        </div>
+      </div>
+
+      <!-- Classes -->
+      <div style="position:relative;z-index:1;text-align:center;padding-top:4px;">
+        <div style="font-size:8px;letter-spacing:2px;color:#ffffff22;font-family:'Exo 2',sans-serif;margin-bottom:8px;">FRANQUICIAS SOPORTADAS</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;">
+          <span style="font-family:'Exo 2',sans-serif;font-size:9px;letter-spacing:1px;color:#ffffff44;background:#ffffff06;border:1px solid #ffffff0d;padding:3px 8px;border-radius:20px;">Pokémon</span>
+          <span style="font-family:'Exo 2',sans-serif;font-size:9px;letter-spacing:1px;color:#ffffff44;background:#ffffff06;border:1px solid #ffffff0d;padding:3px 8px;border-radius:20px;">Naruto</span>
+          <span style="font-family:'Exo 2',sans-serif;font-size:9px;letter-spacing:1px;color:#ffffff44;background:#ffffff06;border:1px solid #ffffff0d;padding:3px 8px;border-radius:20px;">Dragon Ball</span>
+          <span style="font-family:'Exo 2',sans-serif;font-size:9px;letter-spacing:1px;color:#ffffff44;background:#ffffff06;border:1px solid #ffffff0d;padding:3px 8px;border-radius:20px;">Bleach</span>
+          <span style="font-family:'Exo 2',sans-serif;font-size:9px;letter-spacing:1px;color:#ffffff44;background:#ffffff06;border:1px solid #ffffff0d;padding:3px 8px;border-radius:20px;">Ben 10</span>
+          <span style="font-family:'Exo 2',sans-serif;font-size:9px;letter-spacing:1px;color:#ffffff44;background:#ffffff06;border:1px solid #ffffff0d;padding:3px 8px;border-radius:20px;">Hora de Aventura</span>
+          <span style="font-family:'Exo 2',sans-serif;font-size:9px;letter-spacing:1px;color:#ffffff44;background:#ffffff06;border:1px solid #ffffff0d;padding:3px 8px;border-radius:20px;">Un Show Más</span>
+          <span style="font-family:'Exo 2',sans-serif;font-size:9px;letter-spacing:1px;color:#ffffff44;background:#ffffff06;border:1px solid #ffffff0d;padding:3px 8px;border-radius:20px;">One Piece</span>
+          <span style="font-family:'Exo 2',sans-serif;font-size:9px;letter-spacing:1px;color:#ffffff44;background:#ffffff06;border:1px solid #ffffff0d;padding:3px 8px;border-radius:20px;">Doraemon</span>
+          <span style="font-family:'Exo 2',sans-serif;font-size:9px;letter-spacing:1px;color:#ffffff44;background:#ffffff06;border:1px solid #ffffff0d;padding:3px 8px;border-radius:20px;">Yu-Gi-Oh!</span>
+          <span style="font-family:'Exo 2',sans-serif;font-size:9px;letter-spacing:1px;color:#ffffff44;background:#ffffff06;border:1px solid #ffffff0d;padding:3px 8px;border-radius:20px;">Barbie</span>
+          <span style="font-family:'Exo 2',sans-serif;font-size:9px;letter-spacing:1px;color:#ffffff44;background:#ffffff06;border:1px solid #ffffff0d;padding:3px 8px;border-radius:20px;">Star Wars</span>
+          <span style="font-family:'Exo 2',sans-serif;font-size:9px;letter-spacing:1px;color:#ffffff44;background:#ffffff06;border:1px solid #ffffff0d;padding:3px 8px;border-radius:20px;">Attack on Titan</span>
+          <span style="font-family:'Exo 2',sans-serif;font-size:9px;letter-spacing:1px;color:#ffffff44;background:#ffffff06;border:1px solid #ffffff0d;padding:3px 8px;border-radius:20px;">Los Simpson</span>
+          <span style="font-family:'Exo 2',sans-serif;font-size:9px;letter-spacing:1px;color:#ffffff44;background:#ffffff06;border:1px solid #ffffff0d;padding:3px 8px;border-radius:20px;">Otra</span>
+        </div>
+      </div>
+
+      <!-- CTA button -->
+      <button onclick="closeOracle()" style="margin-top:10px;width:100%;padding:13px;border-radius:50px;border:1.5px solid #a855f766;background:linear-gradient(135deg,#a855f718,#00f5ff10);color:#a855f7;font-family:'Orbitron',sans-serif;font-size:10px;font-weight:700;letter-spacing:4px;cursor:pointer;transition:background 0.2s,box-shadow 0.2s;position:relative;z-index:1;"
+        onmouseover="this.style.background='linear-gradient(135deg,#a855f730,#00f5ff1a)';this.style.boxShadow='0 0 24px #a855f744'"
+        onmouseout="this.style.background='linear-gradient(135deg,#a855f718,#00f5ff10)';this.style.boxShadow='none'">
+        ¡ ENTENDIDO, ORÁCULO !
+      </button>
+
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

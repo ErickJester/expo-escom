@@ -135,5 +135,6 @@ def static_files(fname):
 
 
 if __name__ == "__main__":
-    print("🚀 http://localhost:8000  (Ctrl+C para detener)")
-    app.run(host="127.0.0.1", port=8000, debug=False, threaded=True)
+    port = int(os.environ.get("PORT", 8000))
+    print(f"🚀 http://localhost:{port}  (Ctrl+C para detener)")
+    app.run(host="127.0.0.1", port=port, debug=False, threaded=True)
