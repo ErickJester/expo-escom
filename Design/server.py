@@ -89,6 +89,7 @@ print(f"✅ Modelo listo | {len(CLASSES)} clases | versión {VERSION} | device {
 # reentrenar. Más negativo = menos probable. Ajusta a gusto.
 CLASS_LOGIT_BIAS = {
     "dragon_ball": -1.5,
+    "bleach":      -0.6,
 }
 _BIAS = torch.tensor(
     [CLASS_LOGIT_BIAS.get(c, 0.0) for c in CLASSES],
