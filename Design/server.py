@@ -83,26 +83,11 @@ model.to(DEVICE).eval()
 VERSION = ckpt.get("version", "?")
 print(f"✅ Modelo listo | {len(CLASSES)} clases | versión {VERSION} | device {DEVICE}")
 
-# ─── Corrección de sesgo (logit adjustment) ──────────────────
-# El modelo tiende a sobre-predecir Dragon Ball. Restamos un offset
-# en el espacio de logits ANTES del softmax para atenuarlo, sin
-# reentrenar. Más negativo = menos probable. Ajusta a gusto.
-CLASS_LOGIT_BIAS = {
-    "dragon_ball": -1.5,
-    "bleach":      -0.6,
-}
-_BIAS = torch.tensor(
-    [CLASS_LOGIT_BIAS.get(c, 0.0) for c in CLASSES],
-    dtype=torch.float32, device=DEVICE,
-)
-
-
 @torch.no_grad()
 def infer(img):
     """Devuelve {ui_id: prob} con las 17 salidas mapeadas a 15 filas."""
     x = transform(img).unsqueeze(0).to(DEVICE)
-    logits = model(x)[0] + _BIAS            # penaliza clases sesgadas
-    probs  = F.softmax(logits, dim=0).cpu().numpy()
+    probs = F.softmax(model(x), dim=1)[0].cpu().numpy()
     ui = {}
     for cls, p in zip(CLASSES, probs):
         uid = MODEL_TO_UI.get(cls, cls)
