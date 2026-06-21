@@ -37,9 +37,31 @@ TRAIN_DIR    = os.path.join(PROJECT_ROOT, "entrenamiento_local")
 MODELS_DIR   = os.path.join(PROJECT_ROOT, "models")
 MODEL_PATH   = os.path.join(MODELS_DIR, "toonverse_full.pt")
 
-# Reutiliza la arquitectura REAL del entrenamiento (única fuente de verdad)
+# ─── Arquitecturas ───────────────────────────────────────────
+import torch.nn as nn
+import torchvision.models as tv_models
+
+# MobileNetV2 (Plan A / modelos anteriores)
 sys.path.insert(0, TRAIN_DIR)
 from model import CartoonClassifier  # noqa: E402
+
+# ConvNeXt-Small (Plan B)
+class CartoonConvNeXt(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        backbone      = tv_models.convnext_small(weights=None)
+        self.features = backbone.features
+        self.avgpool  = backbone.avgpool
+        self.norm     = backbone.classifier[0]
+        self.head = nn.Sequential(
+            nn.Linear(768, 512), nn.GELU(), nn.Dropout(0.4),
+            nn.Linear(512, num_classes),
+        )
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = self.norm(x)
+        return self.head(torch.flatten(x, 1))
 
 # ─── Preprocesado (idéntico a transform_plain de train.py) ───
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
@@ -80,16 +102,19 @@ _model_lock = threading.Lock()
 _state = {"model": None, "classes": [], "version": "?", "path": MODEL_PATH}
 
 def _load_model(path):
-    ckpt  = torch.load(path, map_location=DEVICE, weights_only=False)
-    cls   = ckpt["classes"]
-    m     = CartoonClassifier(num_classes=len(cls), pretrained=False)
+    ckpt = torch.load(path, map_location=DEVICE, weights_only=False)
+    cls  = ckpt["classes"]
+    arch = ckpt.get("arch", "mobilenet_v2")
+    if arch == "convnext_small":
+        m = CartoonConvNeXt(num_classes=len(cls))
+    else:
+        m = CartoonClassifier(num_classes=len(cls), pretrained=False)
     m.load_state_dict(ckpt["model_state_dict"])
     m.to(DEVICE).eval()
     return m, cls, ckpt.get("version", "?")
 
 def _list_models():
-    models_dir = os.path.join(TRAIN_DIR, "models")
-    return sorted(f for f in os.listdir(models_dir) if f.endswith(".pt"))
+    return sorted(f for f in os.listdir(MODELS_DIR) if f.endswith(".pt"))
 
 print(f"⏳ Cargando modelo desde {MODEL_PATH} ...")
 _state["model"], _state["classes"], _state["version"] = _load_model(MODEL_PATH)
@@ -139,7 +164,7 @@ def switch_model():
     name = (request.get_json(force=True, silent=True) or {}).get("model", "")
     if not name or "/" in name or not name.endswith(".pt"):
         return jsonify({"error": "nombre inválido"}), 400
-    path = os.path.join(TRAIN_DIR, "models", name)
+    path = os.path.join(MODELS_DIR, name)
     if not os.path.isfile(path):
         return jsonify({"error": "archivo no encontrado"}), 404
     try:
