@@ -33,7 +33,7 @@ HERE         = os.path.dirname(os.path.abspath(__file__))          # ...\Design
 PROJECT_ROOT = os.path.dirname(HERE)                               # ...\expo-escom
 STATIC_DIR   = os.path.join(HERE, "ToonVerse")
 TRAIN_DIR    = os.path.join(PROJECT_ROOT, "entrenamiento_local")
-MODEL_PATH   = os.path.join(TRAIN_DIR, "models", "cartoon_v3.pt")
+MODEL_PATH   = os.path.join(TRAIN_DIR, "models", "toonverse_full.pt")
 
 # Reutiliza la arquitectura REAL del entrenamiento (única fuente de verdad)
 sys.path.insert(0, TRAIN_DIR)
