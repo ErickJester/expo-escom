@@ -22,6 +22,7 @@ try:
 except Exception:
     pass
 
+import threading
 import torch
 import torch.nn.functional as F
 from PIL import Image
@@ -73,24 +74,37 @@ MODEL_TO_UI = {
     "otra/real_life":      "otra",
 }
 
-# ─── Carga del modelo (una sola vez) ─────────────────────────
+# ─── Estado del modelo activo (mutable para hot-swap) ─────────
+_model_lock = threading.Lock()
+_state = {"model": None, "classes": [], "version": "?", "path": MODEL_PATH}
+
+def _load_model(path):
+    ckpt  = torch.load(path, map_location=DEVICE, weights_only=False)
+    cls   = ckpt["classes"]
+    m     = CartoonClassifier(num_classes=len(cls), pretrained=False)
+    m.load_state_dict(ckpt["model_state_dict"])
+    m.to(DEVICE).eval()
+    return m, cls, ckpt.get("version", "?")
+
+def _list_models():
+    models_dir = os.path.join(TRAIN_DIR, "models")
+    return sorted(f for f in os.listdir(models_dir) if f.endswith(".pt"))
+
 print(f"⏳ Cargando modelo desde {MODEL_PATH} ...")
-ckpt    = torch.load(MODEL_PATH, map_location=DEVICE, weights_only=False)
-CLASSES = ckpt["classes"]
-model   = CartoonClassifier(num_classes=len(CLASSES), pretrained=False)
-model.load_state_dict(ckpt["model_state_dict"])
-model.to(DEVICE).eval()
-VERSION = ckpt.get("version", "?")
-print(f"✅ Modelo listo | {len(CLASSES)} clases | versión {VERSION} | device {DEVICE}")
+_state["model"], _state["classes"], _state["version"] = _load_model(MODEL_PATH)
+print(f"✅ Modelo listo | {len(_state['classes'])} clases | versión {_state['version']} | device {DEVICE}")
+
 
 @torch.no_grad()
 def infer(img):
-    """Devuelve {ui_id: prob} con las 17 salidas mapeadas a 15 filas."""
-    x = transform(img).unsqueeze(0).to(DEVICE)
-    probs = F.softmax(model(x), dim=1)[0].cpu().numpy()
+    """Devuelve {ui_id: prob} con las salidas mapeadas a filas de la UI."""
+    with _model_lock:
+        m, cls = _state["model"], _state["classes"]
+    x     = transform(img).unsqueeze(0).to(DEVICE)
+    probs = F.softmax(m(x), dim=1)[0].cpu().numpy()
     ui = {}
-    for cls, p in zip(CLASSES, probs):
-        uid = MODEL_TO_UI.get(cls, cls)
+    for c, p in zip(cls, probs):
+        uid = MODEL_TO_UI.get(c, c)
         ui[uid] = ui.get(uid, 0.0) + float(p)
     return ui
 
@@ -107,11 +121,37 @@ def index():
 @app.route("/health")
 def health():
     return jsonify({
-        "status": "ok",
-        "classes": len(CLASSES),
-        "version": VERSION,
-        "model": os.path.basename(MODEL_PATH),
+        "status":  "ok",
+        "classes": len(_state["classes"]),
+        "version": _state["version"],
+        "model":   os.path.basename(_state["path"]),
     })
+
+
+@app.route("/models")
+def list_models():
+    return jsonify({"models": _list_models(), "active": os.path.basename(_state["path"])})
+
+
+@app.route("/switch", methods=["POST"])
+def switch_model():
+    name = (request.get_json(force=True, silent=True) or {}).get("model", "")
+    if not name or "/" in name or not name.endswith(".pt"):
+        return jsonify({"error": "nombre inválido"}), 400
+    path = os.path.join(TRAIN_DIR, "models", name)
+    if not os.path.isfile(path):
+        return jsonify({"error": "archivo no encontrado"}), 404
+    try:
+        m, cls, ver = _load_model(path)
+        with _model_lock:
+            _state["model"]   = m
+            _state["classes"] = cls
+            _state["version"] = ver
+            _state["path"]    = path
+        print(f"🔄 Modelo cambiado → {name} | {len(cls)} clases | v{ver}")
+        return jsonify({"ok": True, "model": name, "classes": len(cls), "version": ver})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/predict", methods=["POST"])
