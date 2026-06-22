@@ -1,14 +1,33 @@
 @echo off
-REM ============================================================
-REM  ToonVerse - arranca el backend del modelo y abre Chrome
-REM ============================================================
 cd /d "%~dp0"
-echo Iniciando servidor del modelo (cartoon_v3_local.pt)...
-start "ToonVerse server" py server.py
-echo Esperando a que cargue el modelo...
-timeout /t 12 /nobreak >nul
-echo Abriendo Chrome en http://localhost:8000
-start chrome "http://localhost:8000"
+title ToonVerse - Servidor Local
 echo.
-echo La pagina ya esta abierta. Deja la ventana del servidor abierta.
-echo Para detener: cierra la ventana "ToonVerse server".
+echo  ============================================
+echo    ToonVerse - Clasificador Neural
+echo  ============================================
+echo.
+echo  Iniciando servidor en http://localhost:8000
+echo  El navegador se abrira solo en unos segundos.
+echo.
+echo  Para DETENER: cierra esta ventana o pulsa Ctrl+C.
+echo.
+set OPEN_BROWSER=1
+
+where py >nul 2>nul && goto :runpy
+where python >nul 2>nul && goto :runpython
+echo  [ERROR] No se encontro Python. Instala Python 3 y reintenta.
+pause
+goto :eof
+
+:runpy
+py server.py
+goto :end
+
+:runpython
+python server.py
+goto :end
+
+:end
+echo.
+echo  El servidor se detuvo.
+pause

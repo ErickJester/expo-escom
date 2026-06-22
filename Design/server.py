@@ -201,5 +201,10 @@ def static_files(fname):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    print(f"🚀 http://localhost:{port}  (Ctrl+C para detener)")
+    url  = f"http://localhost:{port}"
+    # El launcher (iniciar.bat) pone OPEN_BROWSER=1 para abrir Chrome solo.
+    if os.environ.get("OPEN_BROWSER") == "1":
+        import webbrowser
+        threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+    print(f"🚀 {url}  (Ctrl+C para detener)")
     app.run(host="127.0.0.1", port=port, debug=False, threaded=True)
