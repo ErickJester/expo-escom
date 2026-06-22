@@ -23,3 +23,6 @@ Thumbs.db
 # Node
 node_modules/
 npm-debug.log
+
+# Modelos ConvNeXt (Plan B) — muy pesados, solo local
+../entrenamiento_local/models/cartoon_planB_convnext_*.pt
