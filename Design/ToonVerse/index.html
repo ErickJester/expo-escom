@@ -432,7 +432,7 @@
 
     <!-- Title -->
     <div style="text-align:center;flex-shrink:0;">
-      <div style="font-size:7.5px;letter-spacing:5px;color:#00f5ff33;margin-bottom:3px;font-family:'Exo 2',sans-serif;">· SISTEMA DE CLASIFICACIÓN NEURAL · UI v2.1 ·</div>
+      <div style="font-size:7.5px;letter-spacing:5px;color:#00f5ff33;margin-bottom:3px;font-family:'Exo 2',sans-serif;">· SISTEMA DE CLASIFICACIÓN NEURAL · UI v2.2 ·</div>
       <div style="line-height:1;">
         <span style="font-size:clamp(14px,1.7vw,24px);font-weight:900;letter-spacing:4px;color:#00f5ff;">TOON</span><span style="font-size:clamp(14px,1.7vw,24px);font-weight:900;letter-spacing:4px;color:#a855f7;">VERSE</span>
       </div>
@@ -584,8 +584,11 @@
 // La inferencia usa el backend Flask (/predict) si está online;
 // si no, cae a simulación.
 //
-// VERSION: 'UI v2.1'
+// VERSION: 'UI v2.2'
 // Changelog:
+//   v2.2 — Auto-refresco del selector de modelos: sondea /models
+//          cada few segundos y refleja los .pt nuevos en la carpeta
+//          sin recargar. También detecta caída/reconexión del backend.
 //   v2.1 — Pegar imagen con Ctrl+V: la imagen del portapapeles
 //          sustituye a la cámara en el visor y queda fija; al
 //          presionar ESCANEAR se analiza esa imagen en vez del
@@ -596,7 +599,7 @@
 //          y bucle de inferencia en vivo.
 //   v1.x — Modo único: botón SCAN sobre el video en vivo.
 // ============================================================
-const PAGE_VERSION = 'UI v2.1';
+const PAGE_VERSION = 'UI v2.2';
 
 // Estados (appState):
 //   'armed'    — modo Escanear, cámara en vivo, esperando captura
@@ -955,17 +958,44 @@ async function checkBackend() {
   updateModelBadge();
 }
 
+// Pinta las opciones del selector de forma idempotente: no toca el DOM
+// si la lista (y el modelo activo) no cambió, ni mientras el usuario
+// tiene el menú abierto/enfocado → evita parpadeos y no interrumpe.
+let _modelsSig = '';
+function renderModelOptions(models, active) {
+  const sel = $('model-select');
+  const sig = (models || []).join('|') + '#' + (active || '');
+  if (sig === _modelsSig || document.activeElement === sel) return;
+  _modelsSig = sig;
+  sel.innerHTML = (models || []).map(m =>
+    `<option value="${m}" ${m === active ? 'selected' : ''}>${m}</option>`
+  ).join('');
+  sel.style.color = '#ffffff88';
+  sel.style.borderColor = '#ffffff22';
+}
+
 async function populateModelSelect(active) {
   try {
     const r = await fetch('/models', { cache: 'no-store' });
     const d = await r.json();
-    const sel = $('model-select');
-    sel.innerHTML = d.models.map(m =>
-      `<option value="${m}" ${m === active ? 'selected' : ''}>${m}</option>`
-    ).join('');
-    sel.style.color = '#ffffff88';
-    sel.style.borderColor = '#ffffff22';
+    renderModelOptions(d.models, active);
   } catch (_) {}
+}
+
+// Sondeo periódico de /models: refleja los .pt nuevos de la carpeta
+// (el endpoint lee el directorio en cada petición) y detecta si el
+// backend se cae o vuelve, sin necesidad de recargar la página.
+const MODELS_POLL_MS = 4000;
+async function pollModels() {
+  try {
+    const r = await fetch('/models', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    if (!backendOnline) { await checkBackend(); return; }   // reconexión → re-sincroniza todo
+    renderModelOptions(d.models, modelName);
+  } catch (_) {
+    if (backendOnline) { backendOnline = false; updateModelBadge(); }   // backend caído
+  }
 }
 
 async function onModelSwitch(name) {
@@ -1002,6 +1032,7 @@ async function onModelSwitch(name) {
 render();
 startCamera();
 checkBackend();
+setInterval(pollModels, MODELS_POLL_MS);   // mantiene el selector al día con la carpeta
 
 // Pegar (Ctrl+V) una imagen del portapapeles → la fija en el visor
 window.addEventListener('paste', e => {

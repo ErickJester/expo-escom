@@ -101,8 +101,17 @@ MODEL_TO_UI = {
 _model_lock = threading.Lock()
 _state = {"model": None, "classes": [], "version": "?", "path": MODEL_PATH}
 
+_EXCLUDED = {"features_cache.pt"}  # archivos .pt que no son modelos
+
 def _load_model(path):
     ckpt = torch.load(path, map_location=DEVICE, weights_only=False)
+    # Modelos entrenados con timm (tienen clave "model_name") no están soportados aún
+    if "model_name" in ckpt:
+        mn = ckpt["model_name"]
+        raise ValueError(
+            f"Arquitectura timm '{mn}' no soportada. "
+            "Instala timm e implementa su clase en server.py para usarlo."
+        )
     cls  = ckpt["classes"]
     arch = ckpt.get("arch", "mobilenet_v2")
     if arch == "convnext_small":
@@ -114,7 +123,10 @@ def _load_model(path):
     return m, cls, ckpt.get("version", "?")
 
 def _list_models():
-    return sorted(f for f in os.listdir(MODELS_DIR) if f.endswith(".pt"))
+    return sorted(
+        f for f in os.listdir(MODELS_DIR)
+        if f.endswith(".pt") and f not in _EXCLUDED
+    )
 
 print(f"⏳ Cargando modelo desde {MODEL_PATH} ...")
 _state["model"], _state["classes"], _state["version"] = _load_model(MODEL_PATH)
