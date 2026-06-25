@@ -29,6 +29,12 @@ from PIL import Image
 import torchvision.transforms as transforms
 from flask import Flask, request, jsonify, send_from_directory
 
+try:
+    import timm as _timm
+    _TIMM_OK = True
+except ImportError:
+    _TIMM_OK = False
+
 # ─── Rutas ───────────────────────────────────────────────────
 HERE         = os.path.dirname(os.path.abspath(__file__))          # ...\Design
 PROJECT_ROOT = os.path.dirname(HERE)                               # ...\expo-escom
@@ -99,19 +105,27 @@ MODEL_TO_UI = {
 
 # ─── Estado del modelo activo (mutable para hot-swap) ─────────
 _model_lock = threading.Lock()
-_state = {"model": None, "classes": [], "version": "?", "path": MODEL_PATH}
+_state = {"model": None, "classes": [], "version": "?", "path": MODEL_PATH, "multilabel": False}
 
 _EXCLUDED = {"features_cache.pt"}  # archivos .pt que no son modelos
 
 def _load_model(path):
+    """Carga un checkpoint y devuelve (model, classes, version, multilabel)."""
     ckpt = torch.load(path, map_location=DEVICE, weights_only=False)
-    # Modelos entrenados con timm (tienen clave "model_name") no están soportados aún
+
+    # ── Modelos timm (tienen clave "model_name") ─────────────
     if "model_name" in ckpt:
-        mn = ckpt["model_name"]
-        raise ValueError(
-            f"Arquitectura timm '{mn}' no soportada. "
-            "Instala timm e implementa su clase en server.py para usarlo."
-        )
+        if not _TIMM_OK:
+            raise ValueError("timm no instalado. Ejecuta: pip install timm")
+        mn  = ckpt["model_name"]
+        cls = ckpt["classes"]
+        m   = _timm.create_model(mn, pretrained=False, num_classes=len(cls))
+        m.load_state_dict(ckpt["model_state_dict"])
+        m.to(DEVICE).eval()
+        ver = ckpt.get("version", f"timm/{len(cls)}cls")
+        return m, cls, ver, True   # multilabel=True → sigmoid en infer()
+
+    # ── Modelos propios (MobileNetV2 / ConvNeXt-Small) ───────
     cls  = ckpt["classes"]
     arch = ckpt.get("arch", "mobilenet_v2")
     if arch == "convnext_small":
@@ -120,7 +134,7 @@ def _load_model(path):
         m = CartoonClassifier(num_classes=len(cls), pretrained=False)
     m.load_state_dict(ckpt["model_state_dict"])
     m.to(DEVICE).eval()
-    return m, cls, ckpt.get("version", "?")
+    return m, cls, ckpt.get("version", "?"), False  # multilabel=False → softmax
 
 def _list_models():
     return sorted(
@@ -129,7 +143,7 @@ def _list_models():
     )
 
 print(f"⏳ Cargando modelo desde {MODEL_PATH} ...")
-_state["model"], _state["classes"], _state["version"] = _load_model(MODEL_PATH)
+_state["model"], _state["classes"], _state["version"], _state["multilabel"] = _load_model(MODEL_PATH)
 print(f"✅ Modelo listo | {len(_state['classes'])} clases | versión {_state['version']} | device {DEVICE}")
 
 
@@ -137,9 +151,13 @@ print(f"✅ Modelo listo | {len(_state['classes'])} clases | versión {_state['v
 def infer(img):
     """Devuelve {ui_id: prob} con las salidas mapeadas a filas de la UI."""
     with _model_lock:
-        m, cls = _state["model"], _state["classes"]
-    x     = transform(img).unsqueeze(0).to(DEVICE)
-    probs = F.softmax(m(x), dim=1)[0].cpu().numpy()
+        m, cls, multilabel = _state["model"], _state["classes"], _state["multilabel"]
+    x   = transform(img).unsqueeze(0).to(DEVICE)
+    out = m(x)                                  # [1, n_classes]
+    if multilabel:
+        probs = torch.sigmoid(out[0]).cpu().numpy()   # independiente por clase
+    else:
+        probs = F.softmax(out, dim=1)[0].cpu().numpy()
     ui = {}
     for c, p in zip(cls, probs):
         uid = MODEL_TO_UI.get(c, c)
@@ -180,13 +198,15 @@ def switch_model():
     if not os.path.isfile(path):
         return jsonify({"error": "archivo no encontrado"}), 404
     try:
-        m, cls, ver = _load_model(path)
+        m, cls, ver, multilabel = _load_model(path)
         with _model_lock:
-            _state["model"]   = m
-            _state["classes"] = cls
-            _state["version"] = ver
-            _state["path"]    = path
-        print(f"🔄 Modelo cambiado → {name} | {len(cls)} clases | v{ver}")
+            _state["model"]      = m
+            _state["classes"]    = cls
+            _state["version"]    = ver
+            _state["multilabel"] = multilabel
+            _state["path"]       = path
+        kind = "multilabel" if multilabel else "single-label"
+        print(f"🔄 Modelo cambiado → {name} | {len(cls)} clases | v{ver} | {kind}")
         return jsonify({"ok": True, "model": name, "classes": len(cls), "version": ver})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
