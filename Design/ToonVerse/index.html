@@ -432,7 +432,7 @@
 
     <!-- Title -->
     <div style="text-align:center;flex-shrink:0;">
-      <div style="font-size:7.5px;letter-spacing:5px;color:#00f5ff33;margin-bottom:3px;font-family:'Exo 2',sans-serif;">· SISTEMA DE CLASIFICACIÓN NEURAL · UI v2.0 ·</div>
+      <div style="font-size:7.5px;letter-spacing:5px;color:#00f5ff33;margin-bottom:3px;font-family:'Exo 2',sans-serif;">· SISTEMA DE CLASIFICACIÓN NEURAL · UI v2.1 ·</div>
       <div style="line-height:1;">
         <span style="font-size:clamp(14px,1.7vw,24px);font-weight:900;letter-spacing:4px;color:#00f5ff;">TOON</span><span style="font-size:clamp(14px,1.7vw,24px);font-weight:900;letter-spacing:4px;color:#a855f7;">VERSE</span>
       </div>
@@ -447,6 +447,10 @@
       <!-- Frame congelado (foto): se muestra encima del video en scanning/frozen -->
       <img id="frozen-img" alt="captura"
            style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:14px;z-index:5;">
+
+      <!-- Imagen pegada (Ctrl+V): sustituye a la cámara hasta escanear/reiniciar -->
+      <img id="pasted-img" alt="imagen pegada"
+           style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:contain;border-radius:14px;background:#080812;z-index:5;">
 
       <!-- Camera error -->
       <div id="camera-error" style="display:none;position:absolute;inset:0;border-radius:14px;background:#080812;flex-direction:column;align-items:center;justify-content:center;gap:10px;">
@@ -471,7 +475,7 @@
       <!-- IDLE: glow border + prompt -->
       <div id="idle-border" style="position:absolute;inset:0;border-radius:14px;border:2px solid #00f5ff44;animation:glow-pulse 3s ease-in-out infinite;pointer-events:none;z-index:7;"></div>
       <div id="idle-prompt" style="position:absolute;bottom:20px;left:0;right:0;text-align:center;z-index:10;pointer-events:none;">
-        <span style="font-size:9px;letter-spacing:3px;color:#ffffff66;animation:tick-blink 2.5s ease-in-out infinite;font-family:'Exo 2',sans-serif;">Apunta y presiona ESCANEAR…</span>
+        <span id="idle-prompt-text" style="font-size:9px;letter-spacing:3px;color:#ffffff66;animation:tick-blink 2.5s ease-in-out infinite;font-family:'Exo 2',sans-serif;">Apunta y presiona ESCANEAR…</span>
       </div>
 
       <!-- TIEMPO REAL: prompt -->
@@ -580,15 +584,19 @@
 // La inferencia usa el backend Flask (/predict) si está online;
 // si no, cae a simulación.
 //
-// VERSION: 'UI v2.0'
+// VERSION: 'UI v2.1'
 // Changelog:
+//   v2.1 — Pegar imagen con Ctrl+V: la imagen del portapapeles
+//          sustituye a la cámara en el visor y queda fija; al
+//          presionar ESCANEAR se analiza esa imagen en vez del
+//          frame en vivo. onReset/onRealtime vuelven a la cámara.
 //   v2.0 — Dos modos: TIEMPO REAL (clasificación continua del
 //          video en vivo) y ESCANEAR (captura congelada tipo foto
 //          + análisis del frame). Botones de modo, frame congelado
 //          y bucle de inferencia en vivo.
 //   v1.x — Modo único: botón SCAN sobre el video en vivo.
 // ============================================================
-const PAGE_VERSION = 'UI v2.0';
+const PAGE_VERSION = 'UI v2.1';
 
 // Estados (appState):
 //   'armed'    — modo Escanear, cámara en vivo, esperando captura
@@ -627,6 +635,7 @@ const state = {
 let backendOnline = false;
 let modelVersion  = null;
 let modelName     = null;          // nombre del archivo .pt en uso
+let pastedImage   = null;          // dataURL de la imagen pegada (Ctrl+V); null = usar cámara
 
 const $ = id => document.getElementById(id);
 
@@ -698,6 +707,7 @@ function clearProbs() {
 // ── Modo TIEMPO REAL: clasificación continua del video en vivo ──
 function onRealtime() {
   if (state.appState === 'scanning' || state.appState === 'realtime') return;
+  pastedImage = null;                 // tiempo real usa el video en vivo, no la imagen pegada
   state.appState = 'realtime';        // sale de congelado/armado y arranca el bucle
   clearProbs();
   render();
@@ -747,10 +757,11 @@ function onScan() {
   }
 }
 
-// Congela el frame actual (como tomar una foto) y lo clasifica
+// Congela el frame actual (como tomar una foto) y lo clasifica.
+// Si hay una imagen pegada (Ctrl+V) se analiza esa; si no, la cámara.
 async function doCapture() {
-  const frame = captureFrame();
-  if (frame) $('frozen-img').src = frame;    // muestra la captura congelada
+  const frame = pastedImage || captureFrame();
+  if (!pastedImage && frame) $('frozen-img').src = frame;    // muestra la captura congelada
   state.appState = 'scanning';
   render();
 
@@ -783,6 +794,21 @@ function triggerFlash() {
 // Descongela y vuelve al modo Escanear (cámara en vivo, esperando)
 function onReset() {
   stopRealtimeLoop();
+  pastedImage = null;                         // descarta la imagen pegada → vuelve a la cámara
+  $('frozen-img').removeAttribute('src');
+  state.appState = 'armed';
+  clearProbs();
+  render();
+}
+
+// ── Pegar imagen del portapapeles (Ctrl+V) ──────────────────
+// Sustituye la cámara por la imagen pegada y la deja fija en modo
+// Escanear; al presionar ESCANEAR se analiza esa imagen.
+function setPastedImage(dataURL) {
+  stopRealtimeLoop();
+  pastedImage = dataURL;
+  $('pasted-img').src = dataURL;
+  $('frozen-img').removeAttribute('src');
   state.appState = 'armed';
   clearProbs();
   render();
@@ -834,17 +860,25 @@ function render() {
   const isFrozen   = state.appState === 'frozen';
 
   // Overlays de la cámara
+  const hasPasted = !!pastedImage;
   $('idle-border').style.display   = isArmed ? 'block' : 'none';
   $('idle-prompt').style.display   = isArmed ? 'block' : 'none';
   $('rt-prompt').style.display     = isRealtime ? 'block' : 'none';
   $('scan-overlay').style.display  = isScanning ? 'block' : 'none';
   $('result-border').style.display = (isRealtime || isFrozen) ? 'block' : 'none';
+  // Imagen pegada: cubre el visor mientras esté armada/escaneando/congelada
+  $('pasted-img').style.display    = (hasPasted && (isArmed || isScanning || isFrozen)) ? 'block' : 'none';
   const hasFrame = !!$('frozen-img').getAttribute('src');
-  $('frozen-img').style.display    = ((isScanning || isFrozen) && hasFrame) ? 'block' : 'none';
+  $('frozen-img').style.display    = (!hasPasted && (isScanning || isFrozen) && hasFrame) ? 'block' : 'none';
+
+  // Texto del prompt en modo Escanear (cambia si hay imagen pegada)
+  $('idle-prompt-text').textContent = hasPasted
+    ? 'Imagen pegada · presiona ESCANEAR'
+    : 'Apunta y presiona ESCANEAR…';
 
   // HUD (esquina superior derecha del visor)
   $('hud-mode').textContent =
-    isRealtime ? '● LIVE' : isScanning ? 'SCAN…' : isFrozen ? '❚❚ FOTO' : 'READY';
+    isRealtime ? '● LIVE' : isScanning ? 'SCAN…' : isFrozen ? '❚❚ FOTO' : (hasPasted ? '⎘ PEGADA' : 'READY');
 
   // Botones de modo (toggle) + píldoras contextuales
   $('btn-realtime').classList.toggle('active', isRealtime);
@@ -969,6 +1003,22 @@ render();
 startCamera();
 checkBackend();
 
+// Pegar (Ctrl+V) una imagen del portapapeles → la fija en el visor
+window.addEventListener('paste', e => {
+  const items = (e.clipboardData && e.clipboardData.items) || [];
+  for (const it of items) {
+    if (it.type && it.type.indexOf('image') === 0) {
+      const blob = it.getAsFile();
+      if (!blob) continue;
+      const reader = new FileReader();
+      reader.onload = ev => setPastedImage(ev.target.result);
+      reader.readAsDataURL(blob);
+      e.preventDefault();
+      return;
+    }
+  }
+});
+
 // ── Oracle popup ─────────────────────────────────────────────
 document.getElementById('oracle-btn').addEventListener('click', () => {
   const ov = document.getElementById('oracle-overlay');
@@ -1048,6 +1098,8 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeOracle(
           <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#a855f7;margin-bottom:5px;">MODO · ESCANEAR</div>
           <div style="font-family:'Exo 2',sans-serif;font-size:11.5px;color:#ffffff88;line-height:1.6;">
             Presiona <span style="color:#a855f7;font-weight:600;">ESCANEAR</span> para capturar un fotograma fijo y analizarlo. El resultado se congela en pantalla con el personaje detectado y su porcentaje de confianza. Usa <span style="color:#ffffff55;">Escanear de nuevo</span> para reiniciar.
+            <br><br>
+            También puedes pegar una imagen con <span style="color:#a855f7;font-weight:600;">Ctrl + V</span>: sustituirá a la cámara en el visor y se analizará al presionar ESCANEAR.
           </div>
         </div>
       </div>
