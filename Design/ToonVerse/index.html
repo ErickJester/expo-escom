@@ -432,7 +432,7 @@
 
     <!-- Title -->
     <div style="text-align:center;flex-shrink:0;">
-      <div style="font-size:7.5px;letter-spacing:5px;color:#00f5ff33;margin-bottom:3px;font-family:'Exo 2',sans-serif;">· SISTEMA DE CLASIFICACIÓN NEURAL · UI v2.2 ·</div>
+      <div style="font-size:7.5px;letter-spacing:5px;color:#00f5ff33;margin-bottom:3px;font-family:'Exo 2',sans-serif;">· SISTEMA DE CLASIFICACIÓN NEURAL · UI v2.3 ·</div>
       <div style="line-height:1;">
         <span style="font-size:clamp(14px,1.7vw,24px);font-weight:900;letter-spacing:4px;color:#00f5ff;">TOON</span><span style="font-size:clamp(14px,1.7vw,24px);font-weight:900;letter-spacing:4px;color:#a855f7;">VERSE</span>
       </div>
@@ -584,8 +584,13 @@
 // La inferencia usa el backend Flask (/predict) si está online;
 // si no, cae a simulación.
 //
-// VERSION: 'UI v2.2'
+// VERSION: 'UI v2.3'
 // Changelog:
+//   v2.3 — Tarjeta de resultado multietiqueta: muestra TODOS los
+//          universos por encima del umbral (DETECT_THRESHOLD), no solo
+//          el ganador. Con modelos multilabel un crossover aparece como
+//          "SIMPSON + STAR WARS" y el status cambia a "CROSSOVER".
+//          Con modelos single-label (softmax) sigue mostrando uno solo.
 //   v2.2 — Auto-refresco del selector de modelos: sondea /models
 //          cada few segundos y refleja los .pt nuevos en la carpeta
 //          sin recargar. También detecta caída/reconexión del backend.
@@ -599,7 +604,13 @@
 //          y bucle de inferencia en vivo.
 //   v1.x — Modo único: botón SCAN sobre el video en vivo.
 // ============================================================
-const PAGE_VERSION = 'UI v2.2';
+const PAGE_VERSION = 'UI v2.3';
+
+// Umbral de "detectado": clases con prob >= este valor se muestran como
+// detectadas en la tarjeta. Con multilabel (sigmoid) pueden ser varias
+// (crossover); con softmax casi siempre es una sola. Siempre se muestra
+// al menos el top-1 aunque ninguna llegue al umbral.
+const DETECT_THRESHOLD = 0.5;
 
 // Estados (appState):
 //   'armed'    — modo Escanear, cámara en vivo, esperando captura
@@ -631,8 +642,17 @@ const CLASSES = [
 const state = {
   appState: 'armed',                                 // armed | realtime | scanning | frozen
   probabilities: CLASSES.map(c => ({ ...c, value: 0 })),
-  topResult: null,
+  topResult: null,                                   // clase #1 (para confeti y compatibilidad)
+  detected: null,                                    // todas las clases sobre umbral (crossover)
 };
+
+// Devuelve las clases "detectadas": todas las que superan DETECT_THRESHOLD,
+// ordenadas por probabilidad. Si ninguna lo supera, devuelve solo el top-1.
+function computeDetected(probs) {
+  const sorted = [...probs].sort((a, b) => b.value - a.value);
+  const over   = sorted.filter(p => p.value >= DETECT_THRESHOLD);
+  return over.length ? over : sorted.slice(0, 1);
+}
 
 // Modo de inferencia: true = modelo real (backend), false = simulación
 let backendOnline = false;
@@ -704,6 +724,7 @@ async function classifyFrame(frame) {
 
 function clearProbs() {
   state.topResult = null;
+  state.detected  = null;
   state.probabilities = CLASSES.map(c => ({ ...c, value: 0 }));
 }
 
@@ -734,7 +755,8 @@ async function realtimeTick() {
     const probs = await classifyFrame(captureFrame());
     if (state.appState !== 'realtime') return;   // el modo pudo cambiar durante el await
     state.probabilities = probs;
-    state.topResult = [...probs].sort((a, b) => b.value - a.value)[0];
+    state.detected  = computeDetected(probs);
+    state.topResult = state.detected[0];
     render();                                    // actualización en vivo (sin flash ni confeti)
   } finally {
     rtBusy = false;
@@ -777,7 +799,8 @@ async function doCapture() {
   if (elapsed < MIN_MS) await new Promise(r => setTimeout(r, MIN_MS - elapsed));
 
   state.probabilities = probs;
-  state.topResult = [...probs].sort((a, b) => b.value - a.value)[0];
+  state.detected  = computeDetected(probs);
+  state.topResult = state.detected[0];
   state.appState = 'frozen';
   render();
 
@@ -912,13 +935,20 @@ function render() {
   const showCard = isFrozen || (isRealtime && state.topResult);
   $('result-card').style.display = showCard ? 'block' : 'none';
   if (showCard && state.topResult) {
-    $('res-status').textContent = isRealtime ? 'EN VIVO · DETECTANDO' : 'RESULTADO · DETECTADO';
-    const t   = state.topResult;
-    const tc  = t.color;
-    const pct = Math.round(t.value * 100);
-    $('res-label').textContent      = t.label.toUpperCase();
-    $('res-percent').textContent    = pct + '%';
-    $('res-percent').style.color    = tc;
+    const det     = (state.detected && state.detected.length) ? state.detected : [state.topResult];
+    const isCross = det.length >= 2;                 // 2+ universos sobre umbral = crossover
+    const top     = det[0];
+    const tc      = top.color;
+    const pct     = Math.round(top.value * 100);
+
+    $('res-status').textContent = isCross
+      ? (isRealtime ? 'EN VIVO · CROSSOVER' : 'CROSSOVER · DETECTADO')
+      : (isRealtime ? 'EN VIVO · DETECTANDO' : 'RESULTADO · DETECTADO');
+
+    // Une los universos detectados: "SIMPSON  +  STAR WARS"  ·  "83% · 76%"
+    $('res-label').textContent   = det.map(d => d.label.toUpperCase()).join('  +  ');
+    $('res-percent').textContent = det.map(d => Math.round(d.value * 100) + '%').join(' · ');
+    $('res-percent').style.color = tc;
     $('res-arrow').style.color      = tc;
     $('res-arrow').style.textShadow = '0 0 20px ' + tc;
     const bar = $('res-bar');
