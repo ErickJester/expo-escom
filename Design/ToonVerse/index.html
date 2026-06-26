@@ -673,7 +673,8 @@ const state = {
 // ordenadas por probabilidad. Si ninguna lo supera, devuelve solo el top-1.
 function computeDetected(probs) {
   const sorted = [...probs].sort((a, b) => b.value - a.value);
-  const over   = sorted.filter(p => p.value >= DETECT_THRESHOLD);
+  // "otra" nunca entra en crossover; sólo aparece si es el top-1 por defecto
+  const over = sorted.filter(p => p.value >= DETECT_THRESHOLD && p.id !== 'otra');
   return over.length ? over : sorted.slice(0, 1);
 }
 
