@@ -432,7 +432,7 @@
 
     <!-- Title -->
     <div style="text-align:center;flex-shrink:0;">
-      <div style="font-size:7.5px;letter-spacing:5px;color:#00f5ff33;margin-bottom:3px;font-family:'Exo 2',sans-serif;">· SISTEMA DE CLASIFICACIÓN NEURAL · UI v2.3 ·</div>
+      <div style="font-size:7.5px;letter-spacing:5px;color:#00f5ff33;margin-bottom:3px;font-family:'Exo 2',sans-serif;">· SISTEMA DE CLASIFICACIÓN NEURAL · UI v2.4 ·</div>
       <div style="line-height:1;">
         <span style="font-size:clamp(14px,1.7vw,24px);font-weight:900;letter-spacing:4px;color:#00f5ff;">TOON</span><span style="font-size:clamp(14px,1.7vw,24px);font-weight:900;letter-spacing:4px;color:#a855f7;">VERSE</span>
       </div>
@@ -459,6 +459,22 @@
         </svg>
         <div style="font-size:9px;letter-spacing:2px;color:#ff666666;font-family:'Exo 2',sans-serif;">CÁMARA NO DISPONIBLE</div>
         <div style="font-size:7px;letter-spacing:1px;color:#ffffff33;font-family:'Exo 2',sans-serif;">Permite acceso en tu navegador</div>
+      </div>
+
+      <!-- UPLOAD: zona para subir imagen (modo Escanear, sin imagen cargada) -->
+      <input id="file-input" type="file" accept="image/*" style="display:none">
+      <div id="upload-zone" onclick="openFilePicker()" title="Subir imagen"
+           style="display:none;position:absolute;inset:0;border-radius:14px;background:#080812;flex-direction:column;align-items:center;justify-content:center;gap:13px;z-index:6;cursor:pointer;">
+        <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="#00f5ffaa" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <button type="button" tabindex="-1"
+                style="padding:11px 30px;border-radius:50px;font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;letter-spacing:3px;color:#00f5ff;background:linear-gradient(135deg,#00f5ff22,#a855f722);border:1.5px solid #00f5ff99;box-shadow:0 0 18px #00f5ff44;cursor:pointer;pointer-events:none;">
+          SUBIR IMAGEN
+        </button>
+        <div style="font-size:8.5px;letter-spacing:2px;color:#ffffff44;font-family:'Exo 2',sans-serif;">o pega con <span style="color:#a855f7;">Ctrl + V</span></div>
       </div>
 
       <!-- Corner brackets (always) -->
@@ -504,8 +520,8 @@
     <!-- Action buttons -->
     <div style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:10px;">
       <div style="display:flex;gap:10px;">
-        <button id="btn-realtime" class="mode-btn rt" onclick="onRealtime()">⊙ TIEMPO REAL</button>
         <button id="btn-scan" class="mode-btn" onclick="onScan()">◉ ESCANEAR</button>
+        <button id="btn-realtime" class="mode-btn rt" onclick="onRealtime()">⊙ TIEMPO REAL</button>
       </div>
       <button id="btn-scanning" disabled
               style="display:none;padding:8px 30px;background:#ffffff07;border:1.5px solid #ffffff18;border-radius:50px;color:#ffffff44;font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:4px;cursor:not-allowed;outline:none;">
@@ -584,8 +600,13 @@
 // La inferencia usa el backend Flask (/predict) si está online;
 // si no, cae a simulación.
 //
-// VERSION: 'UI v2.3'
+// VERSION: 'UI v2.4'
 // Changelog:
+//   v2.4 — Modo ESCANEAR convertido en "Subir imagen": el visor muestra
+//          un botón SUBIR IMAGEN que abre el selector de archivos y sigue
+//          aceptando pegar con Ctrl+V; ya no captura de la cámara. La
+//          cámara se inicia de forma diferida, sólo al entrar en TIEMPO
+//          REAL. Escanear es el modo principal por defecto.
 //   v2.3 — Tarjeta de resultado multietiqueta: muestra TODOS los
 //          universos por encima del umbral (DETECT_THRESHOLD), no solo
 //          el ganador. Con modelos multilabel un crossover aparece como
@@ -604,7 +625,7 @@
 //          y bucle de inferencia en vivo.
 //   v1.x — Modo único: botón SCAN sobre el video en vivo.
 // ============================================================
-const PAGE_VERSION = 'UI v2.3';
+const PAGE_VERSION = 'UI v2.4';
 
 // Umbral de "detectado": clases con prob >= este valor se muestran como
 // detectadas en la tarjeta. Con multilabel (sigmoid) pueden ser varias
@@ -663,16 +684,22 @@ let pastedImage   = null;          // dataURL de la imagen pegada (Ctrl+V); null
 const $ = id => document.getElementById(id);
 
 // ── Cámara ──────────────────────────────────────────────────
+let cameraStarted = false;
 async function startCamera() {
+  if (cameraStarted) return;                 // sólo se arranca una vez (lazy)
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: 1280 }, height: { ideal: 720 } },
     });
     $('video').srcObject = stream;
+    cameraStarted = true;
   } catch (e) {
     $('camera-error').style.display = 'flex';
   }
 }
+
+// Abre el selector de archivos para subir una imagen (modo Escanear)
+function openFilePicker() { $('file-input').click(); }
 
 // ── Inferencia simulada ─────────────────────────────────────
 function simulate() {
@@ -729,9 +756,11 @@ function clearProbs() {
 }
 
 // ── Modo TIEMPO REAL: clasificación continua del video en vivo ──
-function onRealtime() {
+async function onRealtime() {
   if (state.appState === 'scanning' || state.appState === 'realtime') return;
-  pastedImage = null;                 // tiempo real usa el video en vivo, no la imagen pegada
+  pastedImage = null;                 // tiempo real usa el video en vivo, no la imagen subida/pegada
+  $('pasted-img').removeAttribute('src');
+  await startCamera();                // arranca la cámara la primera vez que se entra a Tiempo Real
   state.appState = 'realtime';        // sale de congelado/armado y arranca el bucle
   clearProbs();
   render();
@@ -764,29 +793,31 @@ async function realtimeTick() {
 }
 
 // ── Botón ESCANEAR ──────────────────────────────────────────
-// realtime → armado (1ª pulsación) · armado → captura (2ª pulsación) · frozen → re-armar
+// realtime → modo Subir imagen · armado sin imagen → abre selector ·
+// armado con imagen → analiza · frozen → reiniciar
 function onScan() {
   switch (state.appState) {
     case 'scanning': return;
-    case 'realtime':                  // 1ª pulsación: cambia de Tiempo Real a modo Escanear
+    case 'realtime':                  // pasa de Tiempo Real (cámara) a modo Subir imagen
       stopRealtimeLoop();
       state.appState = 'armed';
       clearProbs();
       render();
       return;
-    case 'frozen':                    // ya hay foto: vuelve a modo Escanear
+    case 'frozen':                    // ya hay resultado: vuelve a modo Subir imagen
       onReset();
       return;
-    default:                          // 'armed' → 2ª pulsación: congela y analiza
+    default:                          // 'armed': sin imagen abre el selector; con imagen, analiza
+      if (!pastedImage) { openFilePicker(); return; }
       doCapture();
   }
 }
 
-// Congela el frame actual (como tomar una foto) y lo clasifica.
-// Si hay una imagen pegada (Ctrl+V) se analiza esa; si no, la cámara.
+// Analiza la imagen cargada (subida o pegada). El modo Escanear ya no
+// captura de la cámara: siempre se trabaja sobre pastedImage.
 async function doCapture() {
-  const frame = pastedImage || captureFrame();
-  if (!pastedImage && frame) $('frozen-img').src = frame;    // muestra la captura congelada
+  const frame = pastedImage;
+  if (!frame) { openFilePicker(); return; }                  // sin imagen → pide subir una
   state.appState = 'scanning';
   render();
 
@@ -817,20 +848,22 @@ function triggerFlash() {
   setTimeout(() => { flash.style.display = 'none'; }, 700);
 }
 
-// Descongela y vuelve al modo Escanear (cámara en vivo, esperando)
+// Reinicia el modo Escanear: descarta la imagen y vuelve a la zona "Subir imagen"
 function onReset() {
   stopRealtimeLoop();
-  pastedImage = null;                         // descarta la imagen pegada → vuelve a la cámara
+  pastedImage = null;                         // descarta la imagen → vuelve a "Subir imagen"
+  $('pasted-img').removeAttribute('src');
   $('frozen-img').removeAttribute('src');
   state.appState = 'armed';
   clearProbs();
   render();
 }
 
-// ── Pegar imagen del portapapeles (Ctrl+V) ──────────────────
-// Sustituye la cámara por la imagen pegada y la deja fija en modo
-// Escanear; al presionar ESCANEAR se analiza esa imagen.
-function setPastedImage(dataURL) {
+// ── Cargar imagen (subida o pegada con Ctrl+V) ──────────────
+// Fija la imagen en el visor en modo Escanear; al presionar
+// ESCANEAR se analiza esa imagen. La usan el selector de archivos
+// y el evento paste.
+function setLoadedImage(dataURL) {
   stopRealtimeLoop();
   pastedImage = dataURL;
   $('pasted-img').src = dataURL;
@@ -885,26 +918,30 @@ function render() {
   const isScanning = state.appState === 'scanning';
   const isFrozen   = state.appState === 'frozen';
 
-  // Overlays de la cámara
-  const hasPasted = !!pastedImage;
+  // Overlays del visor
+  const hasLoaded = !!pastedImage;
+  // El video de la cámara (y su error) sólo en Tiempo Real
+  $('video').style.display         = isRealtime ? 'block' : 'none';
+  $('camera-error').style.display  = (isRealtime && !cameraStarted) ? 'flex' : 'none';
+  // Zona "Subir imagen": modo Escanear, armado y sin imagen cargada
+  $('upload-zone').style.display   = (isArmed && !hasLoaded) ? 'flex' : 'none';
   $('idle-border').style.display   = isArmed ? 'block' : 'none';
-  $('idle-prompt').style.display   = isArmed ? 'block' : 'none';
+  // El prompt inferior sólo cuando ya hay una imagen lista para escanear
+  $('idle-prompt').style.display   = (isArmed && hasLoaded) ? 'block' : 'none';
   $('rt-prompt').style.display     = isRealtime ? 'block' : 'none';
   $('scan-overlay').style.display  = isScanning ? 'block' : 'none';
   $('result-border').style.display = (isRealtime || isFrozen) ? 'block' : 'none';
-  // Imagen pegada: cubre el visor mientras esté armada/escaneando/congelada
-  $('pasted-img').style.display    = (hasPasted && (isArmed || isScanning || isFrozen)) ? 'block' : 'none';
-  const hasFrame = !!$('frozen-img').getAttribute('src');
-  $('frozen-img').style.display    = (!hasPasted && (isScanning || isFrozen) && hasFrame) ? 'block' : 'none';
+  // Imagen cargada (subida/pegada): cubre el visor mientras esté armada/escaneando/congelada
+  $('pasted-img').style.display    = (hasLoaded && (isArmed || isScanning || isFrozen)) ? 'block' : 'none';
+  $('frozen-img').style.display    = 'none';   // ya no se usa (Escanear no captura de la cámara)
 
-  // Texto del prompt en modo Escanear (cambia si hay imagen pegada)
-  $('idle-prompt-text').textContent = hasPasted
-    ? 'Imagen pegada · presiona ESCANEAR'
-    : 'Apunta y presiona ESCANEAR…';
+  // Texto del prompt en modo Escanear (sólo visible con imagen lista)
+  $('idle-prompt-text').textContent = 'Imagen lista · presiona ESCANEAR';
 
   // HUD (esquina superior derecha del visor)
   $('hud-mode').textContent =
-    isRealtime ? '● LIVE' : isScanning ? 'SCAN…' : isFrozen ? '❚❚ FOTO' : (hasPasted ? '⎘ PEGADA' : 'READY');
+    isRealtime ? '● LIVE' : isScanning ? 'SCAN…' : isFrozen ? '✓ LISTA'
+    : (hasLoaded ? '⎘ IMAGEN' : '⬆ SUBIR');
 
   // Botones de modo (toggle) + píldoras contextuales
   $('btn-realtime').classList.toggle('active', isRealtime);
@@ -1060,9 +1097,24 @@ async function onModelSwitch(name) {
 
 // ── Init ────────────────────────────────────────────────────
 render();
-startCamera();
 checkBackend();
 setInterval(pollModels, MODELS_POLL_MS);   // mantiene el selector al día con la carpeta
+// (la cámara ya no arranca al inicio: se inicia sólo al entrar en Tiempo Real)
+
+// Subir imagen desde el selector de archivos → la fija en el visor
+$('file-input').addEventListener('change', e => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => setLoadedImage(ev.target.result);
+  reader.readAsDataURL(file);
+  e.target.value = '';                      // permite volver a subir el mismo archivo
+});
+
+// En modo Escanear (armado), click sobre la imagen permite elegir otra
+$('pasted-img').addEventListener('click', () => {
+  if (state.appState === 'armed') openFilePicker();
+});
 
 // Pegar (Ctrl+V) una imagen del portapapeles → la fija en el visor
 window.addEventListener('paste', e => {
@@ -1072,7 +1124,7 @@ window.addEventListener('paste', e => {
       const blob = it.getAsFile();
       if (!blob) continue;
       const reader = new FileReader();
-      reader.onload = ev => setPastedImage(ev.target.result);
+      reader.onload = ev => setLoadedImage(ev.target.result);
       reader.readAsDataURL(blob);
       e.preventDefault();
       return;
@@ -1134,9 +1186,9 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeOracle(
       <div class="oracle-step">
         <div class="oracle-step-num" style="background:#00f5ff12;border:1px solid #00f5ff44;color:#00f5ff;">1</div>
         <div>
-          <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#00f5ff;margin-bottom:5px;">PERMITE EL ACCESO A LA CÁMARA</div>
+          <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#00f5ff;margin-bottom:5px;">SUBE UNA IMAGEN</div>
           <div style="font-family:'Exo 2',sans-serif;font-size:11.5px;color:#ffffff88;line-height:1.6;">
-            Al abrir la app, tu navegador pedirá permiso para usar la cámara. Acéptalo para habilitar la clasificación en vivo. Sin cámara, ToonVerse no puede analizar imágenes.
+            En el modo <span style="color:#00f5ff;font-weight:600;">ESCANEAR</span> (el principal) pulsa <span style="color:#00f5ff;font-weight:600;">SUBIR IMAGEN</span> para elegir un archivo, o pega una imagen con <span style="color:#a855f7;font-weight:600;">Ctrl + V</span>. Aparecerá en el visor lista para analizar.
           </div>
         </div>
       </div>
@@ -1147,7 +1199,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeOracle(
         <div>
           <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#22ffa0;margin-bottom:5px;">MODO · TIEMPO REAL</div>
           <div style="font-family:'Exo 2',sans-serif;font-size:11.5px;color:#ffffff88;line-height:1.6;">
-            Activa <span style="color:#22ffa0;font-weight:600;">● TIEMPO REAL</span> y apunta la cámara a cualquier imagen, pantalla o ilustración de anime/cartoon. ToonVerse analizará el video continuamente cada ~0.9 s y mostrará las probabilidades en vivo.
+            Activa <span style="color:#22ffa0;font-weight:600;">● TIEMPO REAL</span> (opcional) y permite el acceso a la cámara cuando el navegador lo pida. Apunta a cualquier imagen, pantalla o ilustración de anime/cartoon y ToonVerse analizará el video cada ~0.9 s mostrando las probabilidades en vivo.
           </div>
         </div>
       </div>
@@ -1156,11 +1208,9 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeOracle(
       <div class="oracle-step">
         <div class="oracle-step-num" style="background:#a855f712;border:1px solid #a855f744;color:#a855f7;">3</div>
         <div>
-          <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#a855f7;margin-bottom:5px;">MODO · ESCANEAR</div>
+          <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#a855f7;margin-bottom:5px;">ANALIZA · ESCANEAR</div>
           <div style="font-family:'Exo 2',sans-serif;font-size:11.5px;color:#ffffff88;line-height:1.6;">
-            Presiona <span style="color:#a855f7;font-weight:600;">ESCANEAR</span> para capturar un fotograma fijo y analizarlo. El resultado se congela en pantalla con el personaje detectado y su porcentaje de confianza. Usa <span style="color:#ffffff55;">Escanear de nuevo</span> para reiniciar.
-            <br><br>
-            También puedes pegar una imagen con <span style="color:#a855f7;font-weight:600;">Ctrl + V</span>: sustituirá a la cámara en el visor y se analizará al presionar ESCANEAR.
+            Con la imagen ya en el visor, presiona <span style="color:#a855f7;font-weight:600;">ESCANEAR</span> para analizarla. El resultado se congela en pantalla con el personaje detectado y su porcentaje de confianza. Usa <span style="color:#ffffff55;">Escanear de nuevo</span> para subir o pegar otra imagen.
           </div>
         </div>
       </div>
